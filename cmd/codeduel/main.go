@@ -13,29 +13,31 @@ import (
 	"github.com/nglong14/CodeDuel/internal/app"
 	"github.com/nglong14/CodeDuel/internal/config"
 	"github.com/nglong14/CodeDuel/internal/gateway"
+	"github.com/nglong14/CodeDuel/internal/infrastructure"
 	"github.com/nglong14/CodeDuel/internal/judge"
 	"github.com/nglong14/CodeDuel/internal/match"
 	"github.com/nglong14/CodeDuel/internal/reaper"
 )
 
 func main() {
-	roleFlag := flag.String("role", "", "service role: gateway, match, judge, or reaper")
+	roleFlag := flag.String("role", "", "service role: gateway, match, judge, reaper, or migrate")
+	directionFlag := flag.String("direction", "up", "migration direction: up or down (migrate role only)")
 	flag.Parse()
 
-	if err := run(*roleFlag); err != nil {
+	if err := run(*roleFlag, *directionFlag); err != nil {
 		slog.Error("application exited", "role", *roleFlag, "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(roleName string) error {
+func run(roleName, direction string) error {
 	app.NewLogger(config.LogConfig{})
 
 	if roleName == "" {
-		return errors.New("missing required --role flag (gateway|match|judge|reaper)")
+		return errors.New("missing required --role flag (gateway|match|judge|reaper|migrate)")
 	}
 	if !validRole(roleName) {
-		return fmt.Errorf("unknown role %q (expected gateway|match|judge|reaper)", roleName)
+		return fmt.Errorf("unknown role %q (expected gateway|match|judge|reaper|migrate)", roleName)
 	}
 
 	cfg, err := config.Load()
@@ -47,6 +49,10 @@ func run(roleName string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if roleName == "migrate" {
+		return runMigrate(ctx, cfg, logger, direction)
+	}
 
 	deps, err := app.NewDependencies(ctx, cfg, logger)
 	if err != nil {
@@ -74,9 +80,27 @@ func run(roleName string) error {
 	return nil
 }
 
+func runMigrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, direction string) error {
+	switch direction {
+	case "up":
+		if err := infrastructure.MigrateUp(ctx, cfg.Postgres.DSN); err != nil {
+			return fmt.Errorf("migrate up: %w", err)
+		}
+		logger.Info("migrations applied")
+	case "down":
+		if err := infrastructure.MigrateDown(ctx, cfg.Postgres.DSN); err != nil {
+			return fmt.Errorf("migrate down: %w", err)
+		}
+		logger.Info("migrations rolled back")
+	default:
+		return fmt.Errorf("unknown migrate direction %q (expected up|down)", direction)
+	}
+	return nil
+}
+
 func validRole(roleName string) bool {
 	switch roleName {
-	case "gateway", "match", "judge", "reaper":
+	case "gateway", "match", "judge", "reaper", "migrate":
 		return true
 	default:
 		return false

@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS submissions;
+DROP TABLE IF EXISTS match_players;
+DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS problems;
+DROP TABLE IF EXISTS users;

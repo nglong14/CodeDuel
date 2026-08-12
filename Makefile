@@ -2,10 +2,10 @@ COMPOSE_FILE := deploy/docker-compose.yml
 BINARY := bin/codeduel
 GO := go
 
-.PHONY: help up down logs deps build run-gateway run-match run-judge run-reaper migrate
+.PHONY: help up down logs deps build run-gateway run-match run-judge run-reaper migrate migrate-down
 
 help:
-	@echo "CodeDuel Phase 0 targets:"
+	@echo "CodeDuel targets:"
 	@echo "  make up            Start Postgres + Redis"
 	@echo "  make down          Stop Postgres + Redis"
 	@echo "  make logs          Tail compose logs"
@@ -15,7 +15,8 @@ help:
 	@echo "  make run-match     Run match role"
 	@echo "  make run-judge     Run judge role"
 	@echo "  make run-reaper    Run reaper role"
-	@echo "  make migrate       Run database migrations (Phase 1)"
+	@echo "  make migrate       Apply database migrations"
+	@echo "  make migrate-down  Roll back database migrations"
 
 up:
 	docker compose -f $(COMPOSE_FILE) up -d
@@ -44,5 +45,8 @@ run-judge: deps
 run-reaper: deps
 	$(GO) run ./cmd/codeduel --role=reaper
 
-migrate:
-	@echo "migrate target will be implemented in Phase 1"
+migrate: deps
+	$(GO) run ./cmd/codeduel --role=migrate --direction=up
+
+migrate-down: deps
+	$(GO) run ./cmd/codeduel --role=migrate --direction=down
