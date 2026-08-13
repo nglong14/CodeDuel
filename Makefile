@@ -1,8 +1,10 @@
 COMPOSE_FILE := deploy/docker-compose.yml
 BINARY := bin/codeduel
 GO := go
+GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
-.PHONY: help up down logs deps build run-gateway run-match run-judge run-reaper migrate migrate-down
+.PHONY: help up down logs deps build lint run-gateway run-match run-judge run-reaper migrate migrate-down
 
 help:
 	@echo "CodeDuel targets:"
@@ -11,6 +13,7 @@ help:
 	@echo "  make logs          Tail compose logs"
 	@echo "  make deps          Download Go module dependencies"
 	@echo "  make build         Build codeduel binary"
+	@echo "  make lint          Run golangci-lint"
 	@echo "  make run-gateway   Run gateway role"
 	@echo "  make run-match     Run match role"
 	@echo "  make run-judge     Run judge role"
@@ -32,6 +35,12 @@ deps:
 
 build: deps
 	$(GO) build -o $(BINARY) ./cmd/codeduel
+
+lint:
+	@if [ ! -x "$(GOLANGCI_LINT)" ] || ! "$(GOLANGCI_LINT)" version 2>/dev/null | grep -q "$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"; then \
+		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+	fi
+	$(GOLANGCI_LINT) run ./...
 
 run-gateway: deps
 	$(GO) run ./cmd/codeduel --role=gateway
