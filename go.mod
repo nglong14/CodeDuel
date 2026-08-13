@@ -1,6 +1,6 @@
 module github.com/nglong14/CodeDuel
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -16,7 +16,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
