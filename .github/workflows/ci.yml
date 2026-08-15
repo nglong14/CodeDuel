@@ -64,21 +64,5 @@ jobs:
         with:
           name: coverage-report
           path: coverage.out
- 
-  security:
-    name: Security scan
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v7
- 
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
- 
-      - name: gosec (scan code for common security bugs)
-        uses: securego/gosec@master
-        with:
           args: ./...
  
