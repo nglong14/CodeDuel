@@ -58,3 +58,24 @@ func TestRegistryGetMissing(t *testing.T) {
 		t.Fatalf("Get missing = %p, want nil", got)
 	}
 }
+
+func TestRegistryCloseAll(t *testing.T) {
+	r := NewRegistry()
+	a := newConn(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil, r)
+	b := newConn(uuid.MustParse("22222222-2222-2222-2222-222222222222"), nil, r)
+	r.Add(a)
+	r.Add(b)
+
+	r.CloseAll()
+
+	select {
+	case <-a.closed:
+	default:
+		t.Fatal("expected first conn to be closed")
+	}
+	select {
+	case <-b.closed:
+	default:
+		t.Fatal("expected second conn to be closed")
+	}
+}

@@ -14,6 +14,7 @@ type Config struct {
 	Redis    RedisConfig
 	Match    MatchConfig
 	Log      LogConfig
+	Gateway  GatewayConfig
 }
 
 type PostgresConfig struct {
@@ -31,6 +32,11 @@ type MatchConfig struct {
 type LogConfig struct {
 	Level  string
 	Format string
+}
+
+type GatewayConfig struct {
+	Addr      string
+	JWTSecret string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +60,10 @@ func Load() (*Config, error) {
 		Log: LogConfig{
 			Level:  strings.ToLower(envOr("LOG_LEVEL", "info")),
 			Format: strings.ToLower(envOr("LOG_FORMAT", "text")),
+		},
+		Gateway: GatewayConfig{
+			Addr:      envOr("GATEWAY_ADDR", ":8080"),
+			JWTSecret: envOr("JWT_SECRET", "codeduel-dev-secret"),
 		},
 	}
 

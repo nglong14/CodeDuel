@@ -40,3 +40,15 @@ func (r *Registry) Get(userID uuid.UUID) *conn {
 	defer r.mu.RUnlock()
 	return r.conns[userID]
 }
+
+func (r *Registry) CloseAll() {
+	r.mu.Lock()
+	conns := make([]*conn, 0, len(r.conns))
+	for _, c := range r.conns {
+		conns = append(conns, c)
+	}
+	r.mu.Unlock()
+	for _, c := range conns {
+		c.close()
+	}
+}
