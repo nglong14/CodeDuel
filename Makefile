@@ -4,7 +4,9 @@ GO := go
 GOLANGCI_LINT_VERSION := v2.12.2
 GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
-.PHONY: help up down logs deps build lint run-gateway run-match run-judge run-reaper migrate migrate-down
+USER_ID ?= 11111111-1111-1111-1111-111111111111
+
+.PHONY: help up down logs deps build lint run-gateway run-match run-judge run-reaper run-cli migrate migrate-down
 
 help:
 	@echo "CodeDuel targets:"
@@ -18,6 +20,7 @@ help:
 	@echo "  make run-match     Run match role"
 	@echo "  make run-judge     Run judge role"
 	@echo "  make run-reaper    Run reaper role"
+	@echo "  make run-cli       Run duelcli (USER_ID=$(USER_ID))"
 	@echo "  make migrate       Apply database migrations"
 	@echo "  make migrate-down  Roll back database migrations"
 
@@ -53,6 +56,9 @@ run-judge: deps
 
 run-reaper: deps
 	$(GO) run ./cmd/codeduel --role=reaper
+
+run-cli: deps
+	$(GO) run ./tools/duelcli -user=$(USER_ID)
 
 migrate: deps
 	$(GO) run ./cmd/codeduel --role=migrate --direction=up

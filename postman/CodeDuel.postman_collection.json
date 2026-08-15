@@ -1,0 +1,461 @@
+{
+  "info": {
+    "_postman_id": "7f3c1a2b-9d4e-4f6a-8b2c-1e5d7a9c4b08",
+    "name": "CodeDuel Gateway",
+    "description": "Phase 2 gateway: GET /healthz (no auth) and GET /ws (JWT handshake, then WebSocket).\n\nThere is no login endpoint. A collection pre-request script mints an HS256 JWT (`sub`={{userId}}, `exp` in 1h) using {{jwtSecret}}. That secret must match the gateway's JWT_SECRET, and userId must exist in `users`.\n\nAuth runs before the WebSocket upgrade: handshake failures are HTTP 401 with body `unauthorized`. A successful connect is 101 Switching Protocols.\n\nAfter the socket is up, send proto envelopes from the WebSocket request (examples in that folder):\n- `{\"type\":\"join_queue\"}`\n- `{\"type\":\"submit_code\",\"data\":{\"language\":\"python\",\"code\":\"print(1)\"}}`\n- unknown types should come back as `{\"type\":\"error\",\"data\":{\"message\":\"...\"}}`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const CryptoJS = require('crypto-js');",
+          "",
+          "function base64url(source) {",
+          "    return CryptoJS.enc.Base64.stringify(source)",
+          "        .replace(/=+$/, '')",
+          "        .replace(/\\+/g, '-')",
+          "        .replace(/\\//g, '_');",
+          "}",
+          "",
+          "function mint(payload, secret, alg) {",
+          "    const header = { alg: alg || 'HS256', typ: 'JWT' };",
+          "    const unsigned = base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(header)))",
+          "        + '.'",
+          "        + base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+          "    if (alg === 'none') {",
+          "        return unsigned + '.';",
+          "    }",
+          "    return unsigned + '.' + base64url(CryptoJS.HmacSHA256(unsigned, secret));",
+          "}",
+          "",
+          "const secret = pm.environment.get('jwtSecret');",
+          "const userId = pm.environment.get('userId');",
+          "const now = Math.floor(Date.now() / 1000);",
+          "pm.collectionVariables.set('jwt', mint({ sub: userId, iat: now, exp: now + 3600 }, secret));",
+          "pm.variables.set('mintHelperReady', '1');"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "jwt",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /healthz",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/healthz",
+            "description": "Unauthenticated liveness check."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth handshake (HTTP 401)",
+      "description": "These are ordinary HTTP GETs to /ws (no Upgrade). Auth rejects before upgrade, so they should all return 401 unauthorized. Use them to exercise the failure matrix without a WebSocket client.",
+      "item": [
+        {
+          "name": "Missing token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws",
+            "description": "No Authorization header and no ?token=."
+          }
+        },
+        {
+          "name": "Raw UUID is not a JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws?token={{userId}}",
+            "description": "A user UUID is not a JWT. Gateway must not accept it as identity."
+          }
+        },
+        {
+          "name": "Bad signature",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('jwt', pm.collectionVariables.get('jwt') + 'x');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws",
+            "description": "Tamper the minted JWT so HMAC verification fails."
+          }
+        },
+        {
+          "name": "Expired exp",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function base64url(source) {",
+                  "    return CryptoJS.enc.Base64.stringify(source).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "}",
+                  "const secret = pm.environment.get('jwtSecret');",
+                  "const now = Math.floor(Date.now() / 1000);",
+                  "const header = { alg: 'HS256', typ: 'JWT' };",
+                  "const payload = { sub: pm.environment.get('userId'), iat: now - 7200, exp: now - 3600 };",
+                  "const unsigned = base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(header))) + '.' + base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+                  "pm.collectionVariables.set('jwt', unsigned + '.' + base64url(CryptoJS.HmacSHA256(unsigned, secret)));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws"
+          }
+        },
+        {
+          "name": "Missing exp",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function base64url(source) {",
+                  "    return CryptoJS.enc.Base64.stringify(source).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "}",
+                  "const secret = pm.environment.get('jwtSecret');",
+                  "const now = Math.floor(Date.now() / 1000);",
+                  "const header = { alg: 'HS256', typ: 'JWT' };",
+                  "const payload = { sub: pm.environment.get('userId'), iat: now };",
+                  "const unsigned = base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(header))) + '.' + base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+                  "pm.collectionVariables.set('jwt', unsigned + '.' + base64url(CryptoJS.HmacSHA256(unsigned, secret)));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws"
+          }
+        },
+        {
+          "name": "alg none",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function base64url(source) {",
+                  "    return CryptoJS.enc.Base64.stringify(source).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "}",
+                  "const now = Math.floor(Date.now() / 1000);",
+                  "const header = { alg: 'none', typ: 'JWT' };",
+                  "const payload = { sub: pm.environment.get('userId'), iat: now, exp: now + 3600 };",
+                  "const unsigned = base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(header))) + '.' + base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+                  "pm.collectionVariables.set('jwt', unsigned + '.');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws",
+            "description": "Unsigned JWT (alg confusion). Must be rejected."
+          }
+        },
+        {
+          "name": "Unknown user sub",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const CryptoJS = require('crypto-js');",
+                  "function base64url(source) {",
+                  "    return CryptoJS.enc.Base64.stringify(source).replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "}",
+                  "const secret = pm.environment.get('jwtSecret');",
+                  "const now = Math.floor(Date.now() / 1000);",
+                  "const header = { alg: 'HS256', typ: 'JWT' };",
+                  "const payload = { sub: pm.environment.get('unknownUserId'), iat: now, exp: now + 3600 };",
+                  "const unsigned = base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(header))) + '.' + base64url(CryptoJS.enc.Utf8.parse(JSON.stringify(payload)));",
+                  "pm.collectionVariables.set('jwt', unsigned + '.' + base64url(CryptoJS.HmacSHA256(unsigned, secret)));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.text()).to.include('unauthorized');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/ws",
+            "description": "Valid signature and exp, but sub is not a row in users."
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket",
+      "description": "Use Postman's WebSocket request (Connect). After 101, paste a message from this folder into the composer.\n\nMVP echo: join_queue is echoed; submit_code is acked as judging; unknown types return error.",
+      "item": [
+        {
+          "name": "Connect with Bearer JWT",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{wsUrl}}/ws",
+            "description": "Preferred path (duelcli). Collection pre-request mints {{jwt}}.\n\nAfter connect, send:\n```json\n{\"type\":\"join_queue\"}\n```"
+          }
+        },
+        {
+          "name": "Connect with query token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{wsUrl}}/ws?token={{jwt}}",
+            "description": "Fallback for clients that cannot set headers on a WebSocket handshake (browsers)."
+          }
+        },
+        {
+          "name": "Message: join_queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"join_queue\"\n}"
+            },
+            "url": "{{wsUrl}}/ws",
+            "description": "Copy the body into an open WebSocket connection. Do not Send as HTTP. Expected MVP reply: the same join_queue envelope."
+          }
+        },
+        {
+          "name": "Message: submit_code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"submit_code\",\n  \"data\": {\n    \"language\": \"python\",\n    \"code\": \"print(1)\"\n  }\n}"
+            },
+            "url": "{{wsUrl}}/ws",
+            "description": "Copy the body into an open WebSocket connection. Expected MVP reply: judging ack."
+          }
+        },
+        {
+          "name": "Message: unknown type",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"not_a_real_type\",\n  \"data\": {}\n}"
+            },
+            "url": "{{wsUrl}}/ws",
+            "description": "Copy the body into an open WebSocket connection. Expected reply: {\"type\":\"error\",\"data\":{\"message\":\"...\"}}."
+          }
+        }
+      ]
+    }
+  ]
+}
