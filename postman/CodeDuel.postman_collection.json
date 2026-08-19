@@ -371,7 +371,7 @@
     },
     {
       "name": "WebSocket",
-      "description": "Use Postman's WebSocket request (Connect). After 101, paste a message from this folder into the composer.\n\nMVP echo: join_queue is echoed; submit_code is acked as judging; unknown types return error.",
+      "description": "Use Postman's WebSocket request (Connect). After 101, paste a message from this folder into the composer.\n\nPhase 3: join_queue has no immediate reply. Connect a second seeded user and join from both sockets; both receive the same match_start. submit_code retains its temporary judging acknowledgment; unknown types return error.",
       "item": [
         {
           "name": "Connect with Bearer JWT",
@@ -416,7 +416,7 @@
               "raw": "{\n  \"type\": \"join_queue\"\n}"
             },
             "url": "{{wsUrl}}/ws",
-            "description": "Copy the body into an open WebSocket connection. Do not Send as HTTP. Expected MVP reply: the same join_queue envelope."
+            "description": "Copy the body into an open WebSocket connection. Do not Send as HTTP. A successful join has no immediate response. Once a second live user joins, both sockets receive the same match_start envelope."
           }
         },
         {
