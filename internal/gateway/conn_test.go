@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,25 +13,31 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/nglong14/CodeDuel/internal/proto"
+	"github.com/nglong14/CodeDuel/internal/redisx"
 )
 
-func TestHandleInboundJoinQueueEcho(t *testing.T) {
+func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
 	raw, err := proto.Encode(proto.TypeJoinQueue, nil)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	resp, err := handleInbound(raw)
-	if err != nil {
-		t.Fatalf("handleInbound: %v", err)
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	c := newConn(userID, nil, NewRegistry())
+	var got redisx.QueueMember
+	c.enqueue = func(_ context.Context, member redisx.QueueMember) error {
+		got = member
+		return nil
 	}
-
-	env, err := proto.Decode(resp)
+	resp, err := c.handleInbound(raw)
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		t.Fatalf("conn.handleInbound: %v", err)
 	}
-	if env.Type != proto.TypeJoinQueue {
-		t.Fatalf("type = %q, want %q", env.Type, proto.TypeJoinQueue)
+	if resp != nil {
+		t.Fatalf("response = %s, want nil", resp)
+	}
+	if got.UserID != userID || got.PresenceKey != c.presenceKey || got.Route != redisx.UserChannel(userID) {
+		t.Fatalf("enqueued member = %#v", got)
 	}
 }
 
@@ -42,7 +50,8 @@ func TestHandleInboundSubmitCodeJudging(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	resp, err := handleInbound(raw)
+	c := newConn(uuid.New(), nil, NewRegistry())
+	resp, err := c.handleInbound(raw)
 	if err != nil {
 		t.Fatalf("handleInbound: %v", err)
 	}
@@ -73,6 +82,7 @@ func TestConnCleanupRemovesAndOnClose(t *testing.T) {
 
 	r.Add(c)
 	c.cleanup()
+	r.Wait()
 
 	if !called {
 		t.Fatal("onClose not called")
@@ -87,6 +97,21 @@ func TestConnCleanupRemovesAndOnClose(t *testing.T) {
 	}
 }
 
+func TestConnectionPresenceIsSpecificToConnection(t *testing.T) {
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	first := newConn(userID, nil, NewRegistry())
+	second := newConn(userID, nil, NewRegistry())
+	if first.connectionID == second.connectionID {
+		t.Fatal("connection IDs are equal")
+	}
+	if first.presenceKey == second.presenceKey {
+		t.Fatal("presence keys are equal")
+	}
+	if first.route != second.route || first.route != redisx.UserChannel(userID) {
+		t.Fatalf("routes = %q and %q", first.route, second.route)
+	}
+}
+
 func TestHandleInboundRejects(t *testing.T) {
 	emptySubmit, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{})
 	if err != nil {
@@ -97,6 +122,10 @@ func TestHandleInboundRejects(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 
+	invalidJoin := []byte(`{"type":"join_queue","data":{"user_id":"attacker"}}`)
+	c := newConn(uuid.New(), nil, NewRegistry())
+	c.enqueue = func(context.Context, redisx.QueueMember) error { return nil }
+
 	tests := []struct {
 		name    string
 		raw     []byte
@@ -106,11 +135,12 @@ func TestHandleInboundRejects(t *testing.T) {
 		{"missing type", []byte(`{"data":{}}`), "invalid message"},
 		{"unknown type", unknown, "unknown message type"},
 		{"empty submit", emptySubmit, "invalid submit_code"},
+		{"join with fields", invalidJoin, "invalid join_queue"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := handleInbound(tt.raw)
+			resp, err := c.handleInbound(tt.raw)
 			if err != nil {
 				t.Fatalf("handleInbound: %v", err)
 			}
@@ -132,6 +162,29 @@ func TestHandleInboundRejects(t *testing.T) {
 	}
 }
 
+func TestHandleInboundEnqueueFailureIsRetryable(t *testing.T) {
+	c := newConn(uuid.New(), nil, NewRegistry())
+	c.enqueue = func(context.Context, redisx.QueueMember) error { return errors.New("redis unavailable") }
+	join, err := proto.Encode(proto.TypeJoinQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode join: %v", err)
+	}
+	resp, err := c.handleInbound(join)
+	if err != nil {
+		t.Fatalf("handleInbound join: %v", err)
+	}
+	assertErrorMessage(t, resp, "unable to join queue")
+
+	c.enqueue = func(context.Context, redisx.QueueMember) error { return nil }
+	resp, err = c.handleInbound(join)
+	if err != nil {
+		t.Fatalf("handleInbound retry: %v", err)
+	}
+	if resp != nil {
+		t.Fatalf("retry response = %s, want nil", resp)
+	}
+}
+
 func TestConnPumpsEchoAndReplace(t *testing.T) {
 	registry := NewRegistry()
 	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
@@ -143,6 +196,7 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 			return
 		}
 		c := newConn(userID, ws, registry)
+		c.enqueue = func(context.Context, redisx.QueueMember) error { return nil }
 		registry.Add(c)
 		c.serve()
 	}))
@@ -162,8 +216,6 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 	if err := first.WriteMessage(websocket.TextMessage, join); err != nil {
 		t.Fatalf("write join: %v", err)
 	}
-	assertType(t, first, proto.TypeJoinQueue)
-
 	submit, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
 		Language: "python",
 		Code:     "print(1)",
@@ -190,7 +242,28 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 	if err := second.WriteMessage(websocket.TextMessage, join); err != nil {
 		t.Fatalf("write join on replacement: %v", err)
 	}
-	assertType(t, second, proto.TypeJoinQueue)
+	if err := second.WriteMessage(websocket.TextMessage, submit); err != nil {
+		t.Fatalf("write submit on replacement: %v", err)
+	}
+	assertType(t, second, proto.TypeJudging)
+}
+
+func assertErrorMessage(t *testing.T, raw []byte, want string) {
+	t.Helper()
+	env, err := proto.Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != proto.TypeError {
+		t.Fatalf("type = %q, want %q", env.Type, proto.TypeError)
+	}
+	var data proto.ErrorData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if data.Message != want {
+		t.Fatalf("message = %q, want %q", data.Message, want)
+	}
 }
 
 func assertType(t *testing.T, ws *websocket.Conn, want string) {

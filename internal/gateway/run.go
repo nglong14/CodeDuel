@@ -9,9 +9,13 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/nglong14/CodeDuel/internal/app"
+	"github.com/nglong14/CodeDuel/internal/redisx"
 )
 
-const shutdownTimeout = 5 * time.Second
+const (
+	shutdownTimeout = 5 * time.Second
+	presenceTTL     = 75 * time.Second
+)
 
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: writeWait,
@@ -43,6 +47,7 @@ func Run(ctx context.Context, deps *app.Dependencies) error {
 			deps.Logger.Info("http shutdown", "err", err)
 		}
 		registry.CloseAll()
+		registry.Wait()
 		return ctx.Err()
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -79,10 +84,54 @@ func handleWS(ctx context.Context, deps *app.Dependencies, registry *Registry) h
 		}
 
 		c := newConn(userID, ws, registry)
-		registry.Add(c)
-		c.onClose = subscribeUser(ctx, deps.Redis, userID, c)
-		deps.Logger.Info("connected", "user_id", userID)
-		c.serve()
-		deps.Logger.Info("disconnected", "user_id", userID)
+		c.ctx = ctx
+		c.logger = deps.Logger
+		queue := redisx.NewQueue(deps.Redis, redisx.DefaultScanLimit)
+		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
+			_, enqueueErr := queue.Enqueue(callCtx, member)
+			return enqueueErr
+		}
+		c.refreshPresence = func(callCtx context.Context) error {
+			refreshed, refreshErr := deps.Redis.Expire(callCtx, c.presenceKey, presenceTTL).Result()
+			if refreshErr != nil {
+				return refreshErr
+			}
+			if !refreshed {
+				return errors.New("presence lease no longer exists")
+			}
+			return nil
+		}
+		if err := deps.Redis.Set(r.Context(), c.presenceKey, "1", presenceTTL).Err(); err != nil {
+			deps.Logger.Warn("initial presence failed", "user_id", userID, "err", err)
+			c.close()
+			return
+		}
+
+		unsubscribe, err := subscribeUser(r.Context(), deps.Redis, userID, c)
+		if err != nil {
+			deps.Logger.Warn("subscribe failed", "user_id", userID, "err", err)
+			deletePresence(deps, c.presenceKey)
+			c.close()
+			return
+		}
+		c.onClose = func() {
+			unsubscribe()
+			deletePresence(deps, c.presenceKey)
+		}
+		if !registry.Add(c) {
+			c.cleanup()
+			return
+		}
+		deps.Logger.Info("connected", "user_id", userID, "connection_id", c.connectionID)
+		registry.Serve(c)
+		deps.Logger.Info("disconnected", "user_id", userID, "connection_id", c.connectionID)
+	}
+}
+
+func deletePresence(deps *app.Dependencies, key string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), writeWait)
+	defer cancel()
+	if err := deps.Redis.Del(cleanupCtx, key).Err(); err != nil {
+		deps.Logger.Warn("delete presence failed", "err", err)
 	}
 }

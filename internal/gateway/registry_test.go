@@ -79,3 +79,17 @@ func TestRegistryCloseAll(t *testing.T) {
 		t.Fatal("expected second conn to be closed")
 	}
 }
+
+func TestRegistryRejectsConnectionAfterCloseAll(t *testing.T) {
+	r := NewRegistry()
+	r.CloseAll()
+	c := newConn(uuid.New(), nil, r)
+	if r.Add(c) {
+		t.Fatal("Add returned true after CloseAll")
+	}
+	select {
+	case <-c.closed:
+	default:
+		t.Fatal("rejected connection was not closed")
+	}
+}

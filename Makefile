@@ -6,7 +6,7 @@ GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
 USER_ID ?= 11111111-1111-1111-1111-111111111111
 
-.PHONY: help up down logs deps build lint run-gateway run-match run-judge run-reaper run-cli migrate migrate-down
+.PHONY: help up down logs deps build lint test-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down
 
 help:
 	@echo "CodeDuel targets:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make deps          Download Go module dependencies"
 	@echo "  make build         Build codeduel binary"
 	@echo "  make lint          Run golangci-lint"
+	@echo "  make test-integration  Run Redis/PostgreSQL Phase 3 tests"
 	@echo "  make run-gateway   Run gateway role"
 	@echo "  make run-match     Run match role"
 	@echo "  make run-judge     Run judge role"
@@ -25,7 +26,7 @@ help:
 	@echo "  make migrate-down  Roll back database migrations"
 
 up:
-	docker compose -f $(COMPOSE_FILE) up -d
+	docker compose -f $(COMPOSE_FILE) up -d --wait
 
 down:
 	docker compose -f $(COMPOSE_FILE) down
@@ -44,6 +45,9 @@ lint:
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
 	fi
 	$(GOLANGCI_LINT) run ./...
+
+test-integration: up
+	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/redisx/... ./internal/match/...
 
 run-gateway: deps
 	$(GO) run ./cmd/codeduel --role=gateway
