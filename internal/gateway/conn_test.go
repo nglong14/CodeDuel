@@ -43,8 +43,10 @@ func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
 
 func TestHandleInboundSubmitCodeJudging(t *testing.T) {
 	raw, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
-		Language: "python",
-		Code:     "print(1)",
+		MatchID:   uuid.NewString(),
+		RequestID: uuid.NewString(),
+		Language:  "python",
+		Code:      "print(1)",
 	})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -136,6 +138,7 @@ func TestHandleInboundRejects(t *testing.T) {
 		{"unknown type", unknown, "unknown message type"},
 		{"empty submit", emptySubmit, "invalid submit_code"},
 		{"join with fields", invalidJoin, "invalid join_queue"},
+		{"submit unknown field", []byte(`{"type":"submit_code","data":{"match_id":"11111111-1111-1111-1111-111111111111","request_id":"22222222-2222-2222-2222-222222222222","language":"python","code":"print(1)","extra":true}}`), "invalid submit_code"},
 	}
 
 	for _, tt := range tests {
@@ -217,8 +220,10 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 		t.Fatalf("write join: %v", err)
 	}
 	submit, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
-		Language: "python",
-		Code:     "print(1)",
+		MatchID:   uuid.NewString(),
+		RequestID: uuid.NewString(),
+		Language:  "python",
+		Code:      "print(1)",
 	})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

@@ -1,9 +1,16 @@
 package proto
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -14,6 +21,14 @@ const (
 	TypeJudging    = "judging"
 	TypeResult     = "result"
 	TypeError      = "error"
+
+	VerdictPass    = "pass"
+	VerdictFail    = "fail"
+	VerdictError   = "error"
+	VerdictTimeout = "timeout"
+	VerdictFailed  = "failed"
+
+	MaxSubmissionCodeBytes = 64 << 10
 )
 
 type Envelope struct {
@@ -24,8 +39,10 @@ type Envelope struct {
 type JoinQueueData struct{}
 
 type SubmitCodeData struct {
-	Language string `json:"language"`
-	Code     string `json:"code"`
+	MatchID   string `json:"match_id"`
+	RequestID string `json:"request_id"`
+	Language  string `json:"language"`
+	Code      string `json:"code"`
 }
 
 type MatchStartData struct {
@@ -39,10 +56,15 @@ type JudgingData struct {
 }
 
 type ResultData struct {
-	MatchID     string `json:"match_id"`
-	WinnerID    string `json:"winner_id,omitempty"`
-	TestsPassed int    `json:"tests_passed"`
-	Outcome     string `json:"outcome"`
+	EventID      string `json:"event_id"`
+	SubmissionID string `json:"submission_id"`
+	MatchID      string `json:"match_id"`
+	PlayerID     string `json:"player_id"`
+	Verdict      string `json:"verdict"`
+	TestsPassed  int    `json:"tests_passed"`
+	TotalTests   int    `json:"total_tests"`
+	WinnerID     string `json:"winner_id,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
 }
 
 type ErrorData struct {
@@ -70,8 +92,13 @@ func Encode(typ string, payload any) ([]byte, error) {
 
 func Decode(raw []byte) (Envelope, error) {
 	var env Envelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&env); err != nil {
 		return Envelope{}, fmt.Errorf("decode envelope: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Envelope{}, fmt.Errorf("decode envelope: unexpected trailing data")
 	}
 	if env.Type == "" {
 		return Envelope{}, fmt.Errorf("decode envelope: missing type")
@@ -85,6 +112,65 @@ func (e Envelope) DecodeData(v any) error {
 	}
 	if err := json.Unmarshal(e.Data, v); err != nil {
 		return fmt.Errorf("decode %s data: %w", e.Type, err)
+	}
+	return nil
+}
+
+// DecodeSubmitCodeData strictly decodes and validates an inbound submission.
+func DecodeSubmitCodeData(raw json.RawMessage) (SubmitCodeData, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return SubmitCodeData{}, errors.New("missing submit_code data")
+	}
+	if !utf8.Valid(raw) {
+		return SubmitCodeData{}, errors.New("submit_code data is not valid UTF-8")
+	}
+
+	var data SubmitCodeData
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&data); err != nil {
+		return SubmitCodeData{}, fmt.Errorf("decode submit_code data: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return SubmitCodeData{}, errors.New("decode submit_code data: unexpected trailing data")
+	}
+	if err := data.Validate(); err != nil {
+		return SubmitCodeData{}, err
+	}
+	return data, nil
+}
+
+func (d SubmitCodeData) Validate() error {
+	if err := validateUUID("match_id", d.MatchID); err != nil {
+		return err
+	}
+	if err := validateUUID("request_id", d.RequestID); err != nil {
+		return err
+	}
+	switch d.Language {
+	case "python", "cpp", "java":
+	default:
+		return errors.New("invalid submit_code language")
+	}
+	if !utf8.ValidString(d.Code) {
+		return errors.New("submit_code code is not valid UTF-8")
+	}
+	if strings.IndexByte(d.Code, 0) >= 0 {
+		return errors.New("submit_code code contains NUL")
+	}
+	if strings.TrimSpace(d.Code) == "" {
+		return errors.New("submit_code code is empty")
+	}
+	if len(d.Code) > MaxSubmissionCodeBytes {
+		return errors.New("submit_code code exceeds size limit")
+	}
+	return nil
+}
+
+func validateUUID(name, raw string) error {
+	id, err := uuid.Parse(raw)
+	if err != nil || id == uuid.Nil {
+		return fmt.Errorf("invalid submit_code %s", name)
 	}
 	return nil
 }

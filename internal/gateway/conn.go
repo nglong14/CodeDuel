@@ -160,7 +160,8 @@ func (c *conn) writePump() {
 }
 
 type inboundIntent struct {
-	typ string
+	typ        string
+	submission proto.SubmitCodeData
 }
 
 func decodeInbound(raw []byte) (inboundIntent, string) {
@@ -176,14 +177,11 @@ func decodeInbound(raw []byte) (inboundIntent, string) {
 		}
 		return inboundIntent{typ: proto.TypeJoinQueue}, ""
 	case proto.TypeSubmitCode:
-		var data proto.SubmitCodeData
-		if err := env.DecodeData(&data); err != nil {
+		data, err := proto.DecodeSubmitCodeData(env.Data)
+		if err != nil {
 			return inboundIntent{}, "invalid submit_code"
 		}
-		if data.Language == "" || data.Code == "" {
-			return inboundIntent{}, "invalid submit_code"
-		}
-		return inboundIntent{typ: proto.TypeSubmitCode}, ""
+		return inboundIntent{typ: proto.TypeSubmitCode, submission: data}, ""
 	default:
 		return inboundIntent{}, "unknown message type"
 	}
