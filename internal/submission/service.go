@@ -30,11 +30,16 @@ type Request struct {
 }
 
 type Service struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	dispatcher immediateDispatcher
 }
 
 func NewService(db *pgxpool.Pool) *Service {
 	return &Service{db: db}
+}
+
+func NewServiceWithDispatcher(db *pgxpool.Pool, dispatcher immediateDispatcher) *Service {
+	return &Service{db: db, dispatcher: dispatcher}
 }
 
 // Accept records a pending submission after applying membership and deadline rules.
@@ -110,6 +115,10 @@ func (s *Service) Accept(ctx context.Context, request Request) (uuid.UUID, error
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return uuid.Nil, fmt.Errorf("commit submission: %w", err)
+	}
+	if s.dispatcher != nil {
+		// The submission is durable even when Redis is unavailable; Match will recover it.
+		_ = s.dispatcher.Dispatch(ctx, id)
 	}
 	return id, nil
 }
