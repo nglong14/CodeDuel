@@ -7,6 +7,9 @@ const (
 	MembersKey   = "codeduel:matchmaking:members"
 	LastScoreKey = "codeduel:matchmaking:last-score"
 
+	JudgeJobsKey       = "codeduel:judge:jobs"
+	JudgeConsumerGroup = "codeduel:judges"
+
 	presencePrefix = "codeduel:presence:"
 	userPrefix     = "codeduel:user:"
 )
