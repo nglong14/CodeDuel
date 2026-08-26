@@ -26,7 +26,9 @@ type RedisConfig struct {
 }
 
 type MatchConfig struct {
-	Duration time.Duration
+	Duration                   time.Duration
+	SubmissionDispatchInterval time.Duration
+	SubmissionReenqueueAfter   time.Duration
 }
 
 type LogConfig struct {
@@ -46,6 +48,14 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse MATCH_DURATION: %w", err)
 	}
+	dispatchInterval, err := time.ParseDuration(envOr("SUBMISSION_DISPATCH_INTERVAL", "5s"))
+	if err != nil || dispatchInterval <= 0 {
+		return nil, fmt.Errorf("parse SUBMISSION_DISPATCH_INTERVAL: must be a positive duration")
+	}
+	reenqueueAfter, err := time.ParseDuration(envOr("SUBMISSION_REENQUEUE_AFTER", "30s"))
+	if err != nil || reenqueueAfter <= 0 {
+		return nil, fmt.Errorf("parse SUBMISSION_REENQUEUE_AFTER: must be a positive duration")
+	}
 
 	cfg := &Config{
 		Postgres: PostgresConfig{
@@ -55,7 +65,9 @@ func Load() (*Config, error) {
 			Addr: envOr("REDIS_ADDR", "localhost:6379"),
 		},
 		Match: MatchConfig{
-			Duration: matchDuration,
+			Duration:                   matchDuration,
+			SubmissionDispatchInterval: dispatchInterval,
+			SubmissionReenqueueAfter:   reenqueueAfter,
 		},
 		Log: LogConfig{
 			Level:  strings.ToLower(envOr("LOG_LEVEL", "info")),

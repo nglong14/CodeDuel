@@ -35,3 +35,28 @@ func TestLoadGatewayFromEnv(t *testing.T) {
 		t.Fatalf("JWTSecret = %q, want prod-secret", cfg.Gateway.JWTSecret)
 	}
 }
+
+func TestLoadSubmissionDispatchConfig(t *testing.T) {
+	t.Setenv("MATCH_DURATION", "10m")
+	t.Setenv("SUBMISSION_DISPATCH_INTERVAL", "2s")
+	t.Setenv("SUBMISSION_REENQUEUE_AFTER", "45s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Match.SubmissionDispatchInterval.String() != "2s" {
+		t.Fatalf("SubmissionDispatchInterval = %v", cfg.Match.SubmissionDispatchInterval)
+	}
+	if cfg.Match.SubmissionReenqueueAfter.String() != "45s" {
+		t.Fatalf("SubmissionReenqueueAfter = %v", cfg.Match.SubmissionReenqueueAfter)
+	}
+}
+
+func TestLoadRejectsInvalidSubmissionDispatchConfig(t *testing.T) {
+	t.Setenv("MATCH_DURATION", "10m")
+	t.Setenv("SUBMISSION_DISPATCH_INTERVAL", "0s")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load returned nil error for zero dispatch interval")
+	}
+}
