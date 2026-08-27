@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestParseIntentJoin(t *testing.T) {
-	raw, err := parseIntent("join")
+	raw, err := parseIntent("join", uuid.Nil)
 	if err != nil {
 		t.Fatalf("parseIntent: %v", err)
 	}
@@ -23,7 +24,8 @@ func TestParseIntentJoin(t *testing.T) {
 }
 
 func TestParseIntentSubmit(t *testing.T) {
-	raw, err := parseIntent(`submit python print("hello world")`)
+	matchID := uuid.New()
+	raw, err := parseIntent(`submit python print("hello world")`, matchID)
 	if err != nil {
 		t.Fatalf("parseIntent: %v", err)
 	}
@@ -41,16 +43,68 @@ func TestParseIntentSubmit(t *testing.T) {
 	if data.Code != `print("hello world")` {
 		t.Fatalf("code = %q", data.Code)
 	}
+	if data.MatchID != matchID.String() {
+		t.Fatalf("match_id = %q, want %q", data.MatchID, matchID)
+	}
+	if requestID, err := uuid.Parse(data.RequestID); err != nil || requestID == uuid.Nil {
+		t.Fatalf("request_id = %q", data.RequestID)
+	}
+}
+
+func TestParseIntentSubmitFile(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "submission-*.py")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	code := "print('hello')\n"
+	if _, err := file.WriteString(code); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	raw, err := parseIntent("submit-file python "+file.Name(), uuid.New())
+	if err != nil {
+		t.Fatalf("parseIntent: %v", err)
+	}
+	env, err := proto.Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	var data proto.SubmitCodeData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if data.Code != code {
+		t.Fatalf("code = %q, want %q", data.Code, code)
+	}
+}
+
+func TestRememberMatchStart(t *testing.T) {
+	state := &matchState{}
+	matchID := uuid.New()
+	raw, err := proto.Encode(proto.TypeMatchStart, proto.MatchStartData{MatchID: matchID.String()})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	rememberMatchStart(raw, state)
+	if state.get() != matchID {
+		t.Fatalf("remembered match ID = %s, want %s", state.get(), matchID)
+	}
 }
 
 func TestParseIntentRejects(t *testing.T) {
-	if _, err := parseIntent("nope"); err == nil {
+	if _, err := parseIntent("nope", uuid.Nil); err == nil {
 		t.Fatal("expected error for unknown command")
 	}
-	if _, err := parseIntent("submit python"); err == nil {
+	if _, err := parseIntent("submit python", uuid.New()); err == nil {
 		t.Fatal("expected error for incomplete submit")
 	}
-	raw, err := parseIntent("   ")
+	if _, err := parseIntent("submit python print(1)", uuid.Nil); err == nil {
+		t.Fatal("expected error without remembered match")
+	}
+	raw, err := parseIntent("   ", uuid.Nil)
 	if err != nil {
 		t.Fatalf("blank line: %v", err)
 	}
