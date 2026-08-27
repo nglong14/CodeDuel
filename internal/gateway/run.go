@@ -3,13 +3,16 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	"github.com/nglong14/CodeDuel/internal/redisx"
+	"github.com/nglong14/CodeDuel/internal/submission"
 )
 
 const (
@@ -23,9 +26,19 @@ var upgrader = websocket.Upgrader{
 
 func Run(ctx context.Context, deps *app.Dependencies) error {
 	registry := NewRegistry()
+	dispatcher, err := submission.NewDispatcher(
+		deps.Postgres,
+		redisx.NewJudgeQueue(deps.Redis),
+		deps.Config.Match.SubmissionReenqueueAfter,
+		submission.DefaultDispatchBatchSize,
+	)
+	if err != nil {
+		return fmt.Errorf("initialize submission dispatcher: %w", err)
+	}
+	service := submission.NewServiceWithDispatcher(deps.Postgres, dispatcher)
 	srv := &http.Server{
 		Addr:              deps.Config.Gateway.Addr,
-		Handler:           newHandler(ctx, deps, registry),
+		Handler:           newHandlerWithSubmission(ctx, deps, registry, service.Accept),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -58,9 +71,18 @@ func Run(ctx context.Context, deps *app.Dependencies) error {
 }
 
 func newHandler(ctx context.Context, deps *app.Dependencies, registry *Registry) http.Handler {
+	return newHandlerWithSubmission(ctx, deps, registry, nil)
+}
+
+func newHandlerWithSubmission(
+	ctx context.Context,
+	deps *app.Dependencies,
+	registry *Registry,
+	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error),
+) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /ws", handleWS(ctx, deps, registry))
+	mux.HandleFunc("GET /ws", handleWS(ctx, deps, registry, acceptSubmission))
 	return mux
 }
 
@@ -68,7 +90,12 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func handleWS(ctx context.Context, deps *app.Dependencies, registry *Registry) http.HandlerFunc {
+func handleWS(
+	ctx context.Context,
+	deps *app.Dependencies,
+	registry *Registry,
+	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error),
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := Authenticate(r.Context(), r, deps.Config.Gateway.JWTSecret, deps.Postgres)
 		if err != nil {
@@ -86,6 +113,7 @@ func handleWS(ctx context.Context, deps *app.Dependencies, registry *Registry) h
 		c := newConn(userID, ws, registry)
 		c.ctx = ctx
 		c.logger = deps.Logger
+		c.acceptSubmission = acceptSubmission
 		queue := redisx.NewQueue(deps.Redis, redisx.DefaultScanLimit)
 		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
 			_, enqueueErr := queue.Enqueue(callCtx, member)
