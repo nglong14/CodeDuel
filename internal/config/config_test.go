@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadGatewayDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_ADDR", "")
@@ -58,5 +61,46 @@ func TestLoadRejectsInvalidSubmissionDispatchConfig(t *testing.T) {
 	t.Setenv("SUBMISSION_DISPATCH_INTERVAL", "0s")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load returned nil error for zero dispatch interval")
+	}
+}
+
+func TestLoadJudgeDefaults(t *testing.T) {
+	t.Setenv("JUDGE_CONCURRENCY", "")
+	t.Setenv("JUDGE_MEMORY_BYTES", "")
+	t.Setenv("JUDGE_MEMORY_SWAP_BYTES", "")
+	t.Setenv("JUDGE_ATTEMPT_LEASE", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Judge.Concurrency != 2 || cfg.Judge.MemoryBytes != 256<<20 {
+		t.Fatalf("Judge defaults = %#v", cfg.Judge)
+	}
+	if cfg.Judge.AttemptLease <= cfg.Judge.TotalTimeout+2*cfg.Judge.CleanupTimeout+judgeSetupMargin {
+		t.Fatalf("attempt lease %v does not cover execution and cleanup", cfg.Judge.AttemptLease)
+	}
+}
+
+func TestLoadRejectsInvalidJudgeConfig(t *testing.T) {
+	t.Setenv("JUDGE_MEMORY_BYTES", "268435456")
+	t.Setenv("JUDGE_MEMORY_SWAP_BYTES", "134217728")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load returned nil error for swap below memory")
+	}
+}
+
+func TestJudgeConfigRejectsShortLeaseAndCodeLimit(t *testing.T) {
+	cfg, err := loadJudgeConfig()
+	if err != nil {
+		t.Fatalf("loadJudgeConfig: %v", err)
+	}
+	cfg.AttemptLease = cfg.TotalTimeout + 2*cfg.CleanupTimeout
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil error for short attempt lease")
+	}
+	cfg.AttemptLease = time.Minute
+	cfg.MaxCodeBytes = 1024
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate returned nil error for code limit below protocol maximum")
 	}
 }
