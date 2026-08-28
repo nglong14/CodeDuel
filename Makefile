@@ -6,7 +6,7 @@ GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
 USER_ID ?= 11111111-1111-1111-1111-111111111111
 
-.PHONY: help up down logs deps build lint test-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down
+.PHONY: help up down logs deps build lint test-integration sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down
 
 help:
 	@echo "CodeDuel targets:"
@@ -17,6 +17,8 @@ help:
 	@echo "  make build         Build codeduel binary"
 	@echo "  make lint          Run golangci-lint"
 	@echo "  make test-integration  Run Redis/PostgreSQL Phase 3 tests"
+	@echo "  make sandbox-images  Build pinned Judge sandbox images"
+	@echo "  make test-docker-integration  Run opt-in Judge sandbox tests"
 	@echo "  make run-gateway   Run gateway role"
 	@echo "  make run-match     Run match role"
 	@echo "  make run-judge     Run judge role"
@@ -48,6 +50,14 @@ lint:
 
 test-integration: up
 	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/redisx/... ./internal/match/...
+
+sandbox-images:
+	docker build --pull -t codeduel/sandbox-python:3.13 deploy/sandbox/python
+	docker build --pull -t codeduel/sandbox-cpp:gcc14 deploy/sandbox/cpp
+	docker build --pull -t codeduel/sandbox-java:temurin21 deploy/sandbox/java
+
+test-docker-integration: sandbox-images
+	CODEDUEL_DOCKER_INTEGRATION=1 $(GO) test -race -count=1 ./internal/judge -run Sandbox
 
 run-gateway: deps
 	$(GO) run ./cmd/codeduel --role=gateway
