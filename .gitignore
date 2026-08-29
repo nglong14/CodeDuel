@@ -33,9 +33,3 @@ Editor/IDE
 # .idea/
 # .vscode/
 docs/*
-!docs/architecture/
-docs/architecture/*
-!docs/architecture/docker_executor.md
-!docs/plan/
-docs/plan/*
-!docs/plan/phase_4_5_judge_result_winner_flow.md
