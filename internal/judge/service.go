@@ -20,8 +20,7 @@ var errCompletionOwnershipLost = errors.New("submission completion ownership los
 
 type judgeQueue interface {
 	Read(context.Context, string, int64, time.Duration) ([]redisx.JudgeJob, error)
-	Ack(context.Context, string) error
-	Delete(context.Context, string) error
+	Finalize(context.Context, string) error
 }
 
 type judgeService struct {
@@ -100,7 +99,7 @@ func (s *judgeService) processJob(ctx context.Context, job redisx.JudgeJob) erro
 	}
 	if job.DecodeErr != nil {
 		s.logger.Warn("discard malformed judge job", "entry_id", job.EntryID, "err", job.DecodeErr)
-		return s.ackAndDelete(ctx, job.EntryID)
+		return s.finalizeJob(ctx, job.EntryID)
 	}
 
 	attemptToken := uuid.New()
@@ -111,19 +110,19 @@ func (s *judgeService) processJob(ctx context.Context, job redisx.JudgeJob) erro
 	switch claim.Kind {
 	case claimMissing:
 		s.logger.Warn("discard judge job for missing submission", "entry_id", job.EntryID, "submission_id", job.SubmissionID)
-		return s.ackAndDelete(ctx, job.EntryID)
+		return s.finalizeJob(ctx, job.EntryID)
 	case claimRunning:
 		s.logger.Info("discard duplicate judge job owned by live attempt",
 			"entry_id", job.EntryID,
 			"submission_id", job.SubmissionID,
 			"lease_until", claim.LeaseUntil,
 		)
-		return s.ackAndDelete(ctx, job.EntryID)
+		return s.finalizeJob(ctx, job.EntryID)
 	case claimExpired:
 		s.logger.Warn("leave expired judge attempt for reaper", "entry_id", job.EntryID, "submission_id", job.SubmissionID)
 		return nil
 	case claimCompleted:
-		return s.publishAckDelete(ctx, job.EntryID, claim.Completed)
+		return s.publishAndFinalize(ctx, job.EntryID, claim.Completed)
 	case claimAcquired:
 	default:
 		return fmt.Errorf("claim submission %s: unknown disposition %d", job.SubmissionID, claim.Kind)
@@ -157,10 +156,10 @@ func (s *judgeService) processJob(ctx context.Context, job redisx.JudgeJob) erro
 		"tests_passed", completion.Completed.TestsPassed,
 		"winner_id", completion.Completed.WinnerID,
 	)
-	return s.publishAckDelete(ctx, job.EntryID, completion.Completed)
+	return s.publishAndFinalize(ctx, job.EntryID, completion.Completed)
 }
 
-func (s *judgeService) publishAckDelete(ctx context.Context, entryID string, completed completedSubmission) error {
+func (s *judgeService) publishAndFinalize(ctx context.Context, entryID string, completed completedSubmission) error {
 	events, err := buildResultEvents(completed)
 	if err != nil {
 		return err
@@ -174,14 +173,11 @@ func (s *judgeService) publishAckDelete(ctx context.Context, entryID string, com
 	if len(publishErrors) > 0 {
 		return errors.Join(publishErrors...)
 	}
-	return s.ackAndDelete(ctx, entryID)
+	return s.finalizeJob(ctx, entryID)
 }
 
-func (s *judgeService) ackAndDelete(ctx context.Context, entryID string) error {
-	if err := s.queue.Ack(ctx, entryID); err != nil {
-		return err
-	}
-	if err := s.queue.Delete(ctx, entryID); err != nil {
+func (s *judgeService) finalizeJob(ctx context.Context, entryID string) error {
+	if err := s.queue.Finalize(ctx, entryID); err != nil {
 		return err
 	}
 	return nil

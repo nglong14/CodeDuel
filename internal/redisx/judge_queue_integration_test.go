@@ -56,11 +56,11 @@ func TestJudgeQueueIntegration(t *testing.T) {
 		}
 
 		for _, job := range append(first, second...) {
-			if err := queue.Ack(ctx, job.EntryID); err != nil {
-				t.Fatalf("Ack: %v", err)
+			if err := queue.Finalize(ctx, job.EntryID); err != nil {
+				t.Fatalf("Finalize: %v", err)
 			}
-			if err := queue.Delete(ctx, job.EntryID); err != nil {
-				t.Fatalf("Delete: %v", err)
+			if err := queue.Finalize(ctx, job.EntryID); err != nil {
+				t.Fatalf("idempotent Finalize: %v", err)
 			}
 		}
 		pending, err := rdb.XPending(ctx, JudgeJobsKey, JudgeConsumerGroup).Result()
@@ -85,8 +85,26 @@ func TestJudgeQueueIntegration(t *testing.T) {
 		if err != nil || len(jobs) != 1 || jobs[0].DecodeErr == nil || jobs[0].EntryID == "" {
 			t.Fatalf("Read malformed = %#v, %v", jobs, err)
 		}
-		if err := queue.Ack(ctx, jobs[0].EntryID); err != nil {
-			t.Fatalf("Ack malformed: %v", err)
+		if err := queue.Finalize(ctx, jobs[0].EntryID); err != nil {
+			t.Fatalf("Finalize malformed: %v", err)
+		}
+	})
+
+	t.Run("finalize rejects an entry that was not delivered", func(t *testing.T) {
+		flushIntegrationRedis(t, rdb)
+		queue := NewJudgeQueue(rdb)
+		if err := queue.EnsureGroup(ctx); err != nil {
+			t.Fatalf("EnsureGroup: %v", err)
+		}
+		entryID, err := queue.Enqueue(ctx, uuid.New())
+		if err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+		if err := queue.Finalize(ctx, entryID); err == nil {
+			t.Fatal("Finalize accepted an entry that was not pending")
+		}
+		if rdb.XLen(ctx, JudgeJobsKey).Val() != 1 {
+			t.Fatal("Finalize removed an entry that was not pending")
 		}
 	})
 

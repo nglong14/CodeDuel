@@ -56,9 +56,7 @@ commit
         |
 build and publish all stable result events
         |
-XACK exact entry
-        |
-XDEL exact entry
+atomic Redis script: XACK then XDEL exact entry
 ```
 
 The match-before-submission completion lock order must be preserved by Phase 5 to avoid
@@ -138,8 +136,7 @@ durable match state is unchanged. Problem test cases are treated as immutable so
 | Completion transaction error or stale token | No | No | No |
 | Event encoding error | No | No | No |
 | Any recipient publication error | Attempt all recipients | No | No |
-| `XACK` error | Already published | No | No |
-| `XDEL` error after ack | Already published | Yes | No |
+| Redis finalization error | Already published | Unknown; retry/recovery remains safe | Atomic with delete |
 | Success | Yes | Yes | Yes |
 
 Publishing to zero Redis subscribers counts as success under the best-effort Pub/Sub

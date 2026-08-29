@@ -12,9 +12,23 @@ import (
 )
 
 const (
-	judgeJobSchemaVersion = "1"
-	maxJudgeReadBlock     = 250 * time.Millisecond
+	judgeJobSchemaVersion  = "1"
+	maxJudgeReadBlock      = 250 * time.Millisecond
+	finalizeJudgeJobSource = `
+local acknowledged = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
+if acknowledged == 0 then
+    local existing = redis.call('XRANGE', KEYS[1], ARGV[2], ARGV[2])
+    if #existing == 0 then
+        return 1
+    end
+    return 0
+end
+redis.call('XDEL', KEYS[1], ARGV[2])
+return 1
+`
 )
+
+var finalizeJudgeJobScript = redis.NewScript(finalizeJudgeJobSource)
 
 type JudgeJob struct {
 	EntryID      string
@@ -108,28 +122,26 @@ func (q *JudgeQueue) Read(ctx context.Context, consumer string, count int64, blo
 	return jobs, nil
 }
 
-func (q *JudgeQueue) Ack(ctx context.Context, entryID string) error {
+// Finalize atomically acknowledges and removes one successfully processed entry.
+func (q *JudgeQueue) Finalize(ctx context.Context, entryID string) error {
 	if q == nil || q.client == nil {
-		return errors.New("acknowledge judge job: missing Redis client")
+		return errors.New("finalize judge job: missing Redis client")
 	}
 	if entryID == "" {
-		return errors.New("acknowledge judge job: missing entry ID")
+		return errors.New("finalize judge job: missing entry ID")
 	}
-	if err := q.client.XAck(ctx, JudgeJobsKey, JudgeConsumerGroup, entryID).Err(); err != nil {
-		return fmt.Errorf("acknowledge judge job: %w", err)
+	finalized, err := finalizeJudgeJobScript.Run(
+		ctx,
+		q.client,
+		[]string{JudgeJobsKey},
+		JudgeConsumerGroup,
+		entryID,
+	).Int64()
+	if err != nil {
+		return fmt.Errorf("finalize judge job: %w", err)
 	}
-	return nil
-}
-
-func (q *JudgeQueue) Delete(ctx context.Context, entryID string) error {
-	if q == nil || q.client == nil {
-		return errors.New("delete judge job: missing Redis client")
-	}
-	if entryID == "" {
-		return errors.New("delete judge job: missing entry ID")
-	}
-	if err := q.client.XDel(ctx, JudgeJobsKey, entryID).Err(); err != nil {
-		return fmt.Errorf("delete judge job: %w", err)
+	if finalized != 1 {
+		return fmt.Errorf("finalize judge job: entry %q was not pending", entryID)
 	}
 	return nil
 }

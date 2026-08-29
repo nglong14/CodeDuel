@@ -28,21 +28,21 @@ func TestProcessJobClaimHandling(t *testing.T) {
 		{
 			name:         "malformed",
 			job:          redisx.JudgeJob{EntryID: "1-0", DecodeErr: errors.New("bad payload")},
-			wantQueueOps: []string{"ack:1-0", "delete:1-0"},
+			wantQueueOps: []string{"finalize:1-0"},
 		},
 		{
 			name:         "missing",
 			job:          redisx.JudgeJob{EntryID: "2-0", SubmissionID: claimed.SubmissionID},
 			claim:        claimResult{Kind: claimMissing},
 			wantClaim:    1,
-			wantQueueOps: []string{"ack:2-0", "delete:2-0"},
+			wantQueueOps: []string{"finalize:2-0"},
 		},
 		{
 			name:         "live running",
 			job:          redisx.JudgeJob{EntryID: "3-0", SubmissionID: claimed.SubmissionID},
 			claim:        claimResult{Kind: claimRunning, LeaseUntil: time.Unix(100, 0)},
 			wantClaim:    1,
-			wantQueueOps: []string{"ack:3-0", "delete:3-0"},
+			wantQueueOps: []string{"finalize:3-0"},
 		},
 		{
 			name:      "expired",
@@ -56,7 +56,7 @@ func TestProcessJobClaimHandling(t *testing.T) {
 			claim:        claimResult{Kind: claimCompleted, Completed: completed},
 			wantClaim:    1,
 			wantPublish:  1,
-			wantQueueOps: []string{"ack:5-0", "delete:5-0"},
+			wantQueueOps: []string{"finalize:5-0"},
 		},
 		{
 			name:         "acquired",
@@ -66,7 +66,7 @@ func TestProcessJobClaimHandling(t *testing.T) {
 			wantExecute:  1,
 			wantComplete: 1,
 			wantPublish:  1,
-			wantQueueOps: []string{"ack:6-0", "delete:6-0"},
+			wantQueueOps: []string{"finalize:6-0"},
 		},
 	}
 
@@ -157,7 +157,31 @@ func TestProcessJobLostCompletionOwnershipDoesNotPublishOrAck(t *testing.T) {
 	}
 }
 
-func TestPublishAckDeletePublishesAllBeforeAck(t *testing.T) {
+func TestProcessJobCompletionErrorDoesNotPublishOrAck(t *testing.T) {
+	claimed := testClaimedSubmission()
+	queue := &fakeJudgeQueue{}
+	completionErr := errors.New("completion transaction failed")
+	store := &fakeSubmissionStore{
+		claim:       claimResult{Kind: claimAcquired, Claimed: claimed},
+		completeErr: completionErr,
+	}
+	service := newTestJudgeService(queue, store, executorFunc(func(context.Context, ExecutionRequest) (ExecutionOutcome, error) {
+		return ExecutionOutcome{Kind: OutcomeWrongAnswer, TestsPassed: 1}, nil
+	}), func(context.Context, string, []byte) error {
+		t.Fatal("publish called")
+		return nil
+	})
+
+	err := service.processJob(context.Background(), redisx.JudgeJob{EntryID: "1-0", SubmissionID: claimed.SubmissionID})
+	if !errors.Is(err, completionErr) {
+		t.Fatalf("processJob error = %v, want %v", err, completionErr)
+	}
+	if len(queue.operations) != 0 {
+		t.Fatalf("queue operations = %v, want none", queue.operations)
+	}
+}
+
+func TestPublishAndFinalizePublishesAllBeforeFinalizing(t *testing.T) {
 	queue := &fakeJudgeQueue{}
 	completed := testCompletedSubmission()
 	completed.WinnerID = completed.Players[0]
@@ -170,8 +194,8 @@ func TestPublishAckDeletePublishesAllBeforeAck(t *testing.T) {
 		return nil
 	})
 
-	if err := service.publishAckDelete(context.Background(), "1-0", completed); err == nil {
-		t.Fatal("publishAckDelete returned nil error")
+	if err := service.publishAndFinalize(context.Background(), "1-0", completed); err == nil {
+		t.Fatal("publishAndFinalize returned nil error")
 	}
 	wantChannels := []string{redisx.UserChannel(completed.Players[0]), redisx.UserChannel(completed.Players[1])}
 	if !equalStrings(channels, wantChannels) {
@@ -182,26 +206,27 @@ func TestPublishAckDeletePublishesAllBeforeAck(t *testing.T) {
 	}
 }
 
-func TestAckAndDeleteOrdering(t *testing.T) {
-	t.Run("ack before delete", func(t *testing.T) {
+func TestFinalizeJobAtomically(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
 		queue := &fakeJudgeQueue{}
 		service := newTestJudgeService(queue, &fakeSubmissionStore{}, executorFunc(nil), func(context.Context, string, []byte) error { return nil })
-		if err := service.ackAndDelete(context.Background(), "1-0"); err != nil {
-			t.Fatalf("ackAndDelete: %v", err)
+		if err := service.finalizeJob(context.Background(), "1-0"); err != nil {
+			t.Fatalf("finalizeJob: %v", err)
 		}
-		want := []string{"ack:1-0", "delete:1-0"}
+		want := []string{"finalize:1-0"}
 		if !equalStrings(queue.operations, want) {
 			t.Fatalf("operations = %v, want %v", queue.operations, want)
 		}
 	})
 
-	t.Run("ack failure skips delete", func(t *testing.T) {
-		queue := &fakeJudgeQueue{ackErr: errors.New("ack failed")}
+	t.Run("failure", func(t *testing.T) {
+		finalizeErr := errors.New("finalize failed")
+		queue := &fakeJudgeQueue{finalizeErr: finalizeErr}
 		service := newTestJudgeService(queue, &fakeSubmissionStore{}, executorFunc(nil), func(context.Context, string, []byte) error { return nil })
-		if err := service.ackAndDelete(context.Background(), "2-0"); err == nil {
-			t.Fatal("ackAndDelete returned nil error")
+		if err := service.finalizeJob(context.Background(), "2-0"); !errors.Is(err, finalizeErr) {
+			t.Fatalf("finalizeJob error = %v, want %v", err, finalizeErr)
 		}
-		want := []string{"ack:2-0"}
+		want := []string{"finalize:2-0"}
 		if !equalStrings(queue.operations, want) {
 			t.Fatalf("operations = %v, want %v", queue.operations, want)
 		}
@@ -209,23 +234,17 @@ func TestAckAndDeleteOrdering(t *testing.T) {
 }
 
 type fakeJudgeQueue struct {
-	operations []string
-	ackErr     error
-	deleteErr  error
+	operations  []string
+	finalizeErr error
 }
 
 func (*fakeJudgeQueue) Read(context.Context, string, int64, time.Duration) ([]redisx.JudgeJob, error) {
 	return nil, nil
 }
 
-func (q *fakeJudgeQueue) Ack(_ context.Context, entryID string) error {
-	q.operations = append(q.operations, "ack:"+entryID)
-	return q.ackErr
-}
-
-func (q *fakeJudgeQueue) Delete(_ context.Context, entryID string) error {
-	q.operations = append(q.operations, "delete:"+entryID)
-	return q.deleteErr
+func (q *fakeJudgeQueue) Finalize(_ context.Context, entryID string) error {
+	q.operations = append(q.operations, "finalize:"+entryID)
+	return q.finalizeErr
 }
 
 type fakeSubmissionStore struct {
