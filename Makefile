@@ -16,7 +16,7 @@ help:
 	@echo "  make deps          Download Go module dependencies"
 	@echo "  make build         Build codeduel binary"
 	@echo "  make lint          Run golangci-lint"
-	@echo "  make test-integration  Run Redis/PostgreSQL Phase 3 tests"
+	@echo "  make test-integration  Run Redis/PostgreSQL integration tests"
 	@echo "  make sandbox-images  Build pinned Judge sandbox images"
 	@echo "  make test-docker-integration  Run opt-in Judge sandbox tests"
 	@echo "  make run-gateway   Run gateway role"
@@ -49,7 +49,7 @@ lint:
 	$(GOLANGCI_LINT) run ./...
 
 test-integration: up
-	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/redisx/... ./internal/match/...
+	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/infrastructure/... ./internal/redisx/... ./internal/match/... ./internal/submission/... ./internal/judge/...
 
 sandbox-images:
 	docker build --pull -t codeduel/sandbox-python:3.13 deploy/sandbox/python
