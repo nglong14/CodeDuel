@@ -662,25 +662,23 @@ func (r *attemptResources) cleanup() error {
 	if r == nil || r.engine == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), r.cleanupTimeout)
+	defer cancel()
 	var cleanupErrors []error
 	for index := len(r.containers) - 1; index >= 0; index-- {
 		containerID := r.containers[index]
-		ctx, cancel := context.WithTimeout(context.Background(), r.cleanupTimeout)
 		if _, err := r.engine.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{
 			Force:         true,
 			RemoveVolumes: true,
 		}); err != nil && !strings.Contains(strings.ToLower(err.Error()), "no such container") {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove container %s: %w", containerID, err))
 		}
-		cancel()
 	}
 	if r.volume != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), r.cleanupTimeout)
 		if _, err := r.engine.VolumeRemove(ctx, r.volume, client.VolumeRemoveOptions{Force: true}); err != nil &&
 			!strings.Contains(strings.ToLower(err.Error()), "no such volume") {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove volume %s: %w", r.volume, err))
 		}
-		cancel()
 	}
 	if len(cleanupErrors) > 0 {
 		return fmt.Errorf("clean sandbox resources: %w", errors.Join(cleanupErrors...))
