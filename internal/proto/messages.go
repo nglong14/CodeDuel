@@ -27,6 +27,8 @@ const (
 	VerdictError   = "error"
 	VerdictTimeout = "timeout"
 	VerdictFailed  = "failed"
+	OutcomeWin     = "win"
+	OutcomeLoss    = "loss"
 
 	MaxSubmissionCodeBytes = 64 << 10
 )
