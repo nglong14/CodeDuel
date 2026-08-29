@@ -4,8 +4,8 @@ CodeDuel is a Go backend for real-time programming duels. One binary runs as a
 Gateway, Match, Judge, or Reaper role, with PostgreSQL as the system of record and
 Redis for matchmaking and event delivery.
 
-Phase 4.5 is implemented. Durable submissions are dispatched through Redis Streams,
-claimed by the Judge from PostgreSQL, executed in pinned Python, C++, or Java Docker
+Phase 4.6 is implemented. Durable submissions are distributed across a bounded Judge
+worker pool, claimed from PostgreSQL, executed in pinned Python, C++, or Java Docker
 sandboxes, and completed with token-fenced verdict persistence, atomic winner
 selection, stable result publication, and acknowledgment last.
 
@@ -69,10 +69,11 @@ make sandbox-images
 make run-judge
 ```
 
-The Phase 4.5 Judge processes one submission at a time. Bounded multi-worker
-concurrency is reserved for Phase 4.6. Jobs interrupted by infrastructure failure are
-left pending with a PostgreSQL attempt lease for the Phase 5 Reaper; Redis Pub/Sub
-result delivery remains best-effort.
+`JUDGE_CONCURRENCY` bounds active sandbox workers, with one Redis consumer per worker
+and no job prefetch beyond available slots. Shutdown stops intake immediately, lets
+in-flight jobs drain for the total execution and cleanup budget, then force-cancels
+remaining work. Interrupted jobs stay pending with a PostgreSQL attempt lease for the
+Phase 5 Reaper; Redis Pub/Sub result delivery remains best-effort.
 
 Run Docker boundary tests explicitly:
 

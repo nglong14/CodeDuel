@@ -380,8 +380,11 @@ go test ./internal/judge
 
 ## Known Boundaries of the Current Implementation
 
-- The production Judge currently executes one submission at a time; bounded parallel
-  consumers are Phase 4.6 work.
+- The production Judge runs one Docker execution per configured worker and does not
+  prefetch work beyond `JUDGE_CONCURRENCY`.
+- Shutdown drains in-flight executions for a bounded grace period before cancellation.
+- Attempt cleanup shares one cleanup deadline across all remaining containers and the
+  workspace volume, keeping shutdown and attempt-lease budgets bounded.
 - Interrupted jobs remain pending until the Phase 5 Reaper reclaims their leases.
 - Compiler and runtime diagnostics are not included in `ExecutionOutcome`.
 - An OOM kill is grouped under `runtime_error`, not a separate memory-limit outcome.

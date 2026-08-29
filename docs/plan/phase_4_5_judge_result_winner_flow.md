@@ -16,11 +16,11 @@ Phase 4.5 implements:
 - Atomic match winner selection.
 - Stable per-recipient result events.
 - Completed-job reconstruction.
-- Publish, `XACK`, then `XDEL` ordering.
+- Publish followed by atomic Redis finalization (`XACK`, then `XDEL`).
 
-It intentionally leaves bounded concurrency to Phase 4.6 and PEL reclaim, expired
-lease reset, retry caps, and poison-job handling to Phase 5. Redis Pub/Sub remains
-best-effort and has no durable client replay.
+Phase 4.6 now layers bounded concurrency, graceful shutdown, and race/failure tests on
+this contract. PEL reclaim, expired lease reset, retry caps, and poison-job handling
+remain Phase 5 work. Redis Pub/Sub remains best-effort and has no durable client replay.
 
 ## Components
 
@@ -169,9 +169,30 @@ The full non-Docker integration target is:
 make test-integration
 ```
 
-## Next Phases
+## Phase 4.6 Hardening
 
-Phase 4.6 must activate `JUDGE_CONCURRENCY`, exercise simultaneous pass races, and
-harden shutdown and commit/publish/ack boundaries. Phase 5 must reclaim expired
-PostgreSQL leases and abandoned Stream PEL entries without violating attempt-token
-fencing or the match-before-submission lock order.
+The production runner creates exactly `JUDGE_CONCURRENCY` workers. Each worker has a
+unique Redis consumer name, reads one entry at a time, and completes that entry before
+reading another. This bounds active sandboxes without accumulating claimed work in
+memory.
+
+Shutdown uses separate intake and work contexts:
+
+1. Stop all new `XREADGROUP` calls immediately.
+2. Keep in-flight work alive for `TotalTimeout + 2*CleanupTimeout`.
+3. Allow successful work to complete, publish, acknowledge, and delete normally.
+4. Cancel remaining work when the grace period expires.
+5. Leave interrupted attempts unacknowledged for Phase 5.
+
+Race-enabled integration tests prove that concurrent duplicate entries execute once,
+simultaneous passing completions select one winner while both submissions remain
+passes, stale tokens cannot complete, and publication failures retain a completed PEL
+entry. Unit tests cover completion, publish, acknowledgment, deletion, graceful drain,
+and forced-cancellation boundaries. The idempotent Redis finalization Lua script
+prevents an acknowledged entry from being stranded in the Stream when a separate
+delete fails.
+
+## Next Phase
+
+Phase 5 must reclaim expired PostgreSQL leases and abandoned Stream PEL entries without
+violating attempt-token fencing or the match-before-submission lock order.
