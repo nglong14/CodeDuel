@@ -3,9 +3,11 @@ package judge
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,6 +143,213 @@ func TestJudgeServiceIntegration(t *testing.T) {
 		assertCompletedJudgeState(t, pool, fixture.submissionID, fixture.matchID, "fail", uuid.Nil)
 		assertJudgeQueueEmpty(t, rdb)
 	})
+
+	t.Run("concurrent duplicate entries execute and complete once", func(t *testing.T) {
+		judgeServiceFlushRedis(t, rdb)
+		fixture := judgeStoreIntegrationFixtureForTest(t, pool, "active")
+		queue := redisx.NewJudgeQueue(rdb)
+		if err := queue.EnsureGroup(ctx); err != nil {
+			t.Fatalf("EnsureGroup: %v", err)
+		}
+		firstEntryID, err := queue.Enqueue(ctx, fixture.submissionID)
+		if err != nil {
+			t.Fatalf("Enqueue first duplicate: %v", err)
+		}
+		secondEntryID, err := queue.Enqueue(ctx, fixture.submissionID)
+		if err != nil {
+			t.Fatalf("Enqueue second duplicate: %v", err)
+		}
+		firstJob := readOneJudgeJob(t, queue, "duplicate-consumer-one")
+		secondJob := readOneJudgeJob(t, queue, "duplicate-consumer-two")
+		if firstJob.EntryID != firstEntryID || secondJob.EntryID != secondEntryID {
+			t.Fatalf("read entry IDs = %q/%q, want %q/%q", firstJob.EntryID, secondJob.EntryID, firstEntryID, secondEntryID)
+		}
+
+		var executeCalls atomic.Int32
+		executorStarted := make(chan struct{})
+		releaseExecutor := make(chan struct{})
+		var releaseOnce sync.Once
+		release := func() {
+			releaseOnce.Do(func() { close(releaseExecutor) })
+		}
+		defer release()
+		executor := executorFunc(func(executeCtx context.Context, _ ExecutionRequest) (ExecutionOutcome, error) {
+			if executeCalls.Add(1) == 1 {
+				close(executorStarted)
+				select {
+				case <-releaseExecutor:
+				case <-executeCtx.Done():
+					return ExecutionOutcome{}, executeCtx.Err()
+				}
+			}
+			return ExecutionOutcome{Kind: OutcomeWrongAnswer, TestsPassed: 1}, nil
+		})
+
+		var publishMu sync.Mutex
+		var publishedChannels []string
+		var publishedPayloads [][]byte
+		publish := func(_ context.Context, channel string, payload []byte) error {
+			publishMu.Lock()
+			defer publishMu.Unlock()
+			publishedChannels = append(publishedChannels, channel)
+			publishedPayloads = append(publishedPayloads, bytes.Clone(payload))
+			return nil
+		}
+		newService := func(consumer string) *judgeService {
+			service, err := newJudgeService(
+				slog.New(slog.DiscardHandler), queue, store, executor, publish,
+				consumer, time.Minute, testLimits(),
+			)
+			if err != nil {
+				t.Fatalf("newJudgeService %q: %v", consumer, err)
+			}
+			return service
+		}
+		firstService := newService("duplicate-consumer-one")
+		secondService := newService("duplicate-consumer-two")
+
+		firstDone := make(chan error, 1)
+		go func() {
+			firstDone <- firstService.processJob(ctx, firstJob)
+		}()
+		select {
+		case <-executorStarted:
+		case err := <-firstDone:
+			t.Fatalf("first processJob finished before executor blocked: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for first executor")
+		}
+
+		secondDone := make(chan error, 1)
+		go func() {
+			secondDone <- secondService.processJob(ctx, secondJob)
+		}()
+		secondErr := receiveJudgeTest(t, secondDone, "duplicate job completion")
+		release()
+		firstErr := receiveJudgeTest(t, firstDone, "original job completion")
+		if firstErr != nil || secondErr != nil {
+			t.Fatalf("processJob errors = first %v, second %v", firstErr, secondErr)
+		}
+		if calls := executeCalls.Load(); calls != 1 {
+			t.Fatalf("executor calls = %d, want 1", calls)
+		}
+
+		publishMu.Lock()
+		channels := append([]string(nil), publishedChannels...)
+		payloads := append([][]byte(nil), publishedPayloads...)
+		publishMu.Unlock()
+		if len(channels) != 1 || channels[0] != redisx.UserChannel(fixture.players[0]) || len(payloads) != 1 {
+			t.Fatalf("published channels/payloads = %v/%d", channels, len(payloads))
+		}
+		data := decodeResultEvent(t, payloads[0])
+		if data.SubmissionID != fixture.submissionID.String() || data.Verdict != proto.VerdictFail ||
+			data.TestsPassed != 1 || data.TotalTests != len(judgeStoreIntegrationTests()) {
+			t.Fatalf("terminal result event = %#v", data)
+		}
+
+		var attempts, testsPassed int
+		var failureKind string
+		if err := pool.QueryRow(ctx, `
+			SELECT attempts, tests_passed, failure_kind
+			FROM submissions
+			WHERE id = $1
+		`, fixture.submissionID).Scan(&attempts, &testsPassed, &failureKind); err != nil {
+			t.Fatalf("query duplicate submission result: %v", err)
+		}
+		if attempts != 1 || testsPassed != 1 || failureKind != "wrong_answer" {
+			t.Fatalf("attempts/tests/failure = %d/%d/%q", attempts, testsPassed, failureKind)
+		}
+		assertCompletedJudgeState(t, pool, fixture.submissionID, fixture.matchID, "fail", uuid.Nil)
+		assertJudgeQueueEmpty(t, rdb)
+	})
+
+	t.Run("publication failure leaves completed entry pending", func(t *testing.T) {
+		judgeServiceFlushRedis(t, rdb)
+		fixture := judgeStoreIntegrationFixtureForTest(t, pool, "active")
+		queue := redisx.NewJudgeQueue(rdb)
+		if err := queue.EnsureGroup(ctx); err != nil {
+			t.Fatalf("EnsureGroup: %v", err)
+		}
+		entryID, err := queue.Enqueue(ctx, fixture.submissionID)
+		if err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+
+		executeCalls := 0
+		publishCalls := 0
+		publishErr := errors.New("result publication unavailable")
+		service, err := newJudgeService(
+			slog.New(slog.DiscardHandler),
+			queue,
+			store,
+			executorFunc(func(context.Context, ExecutionRequest) (ExecutionOutcome, error) {
+				executeCalls++
+				return ExecutionOutcome{Kind: OutcomeWrongAnswer, TestsPassed: 2}, nil
+			}),
+			func(context.Context, string, []byte) error {
+				publishCalls++
+				return publishErr
+			},
+			"publication-failure-consumer",
+			time.Minute,
+			testLimits(),
+		)
+		if err != nil {
+			t.Fatalf("newJudgeService: %v", err)
+		}
+		job := readOneJudgeJob(t, queue, "publication-failure-consumer")
+		if job.EntryID != entryID {
+			t.Fatalf("read entry ID = %q, want %q", job.EntryID, entryID)
+		}
+		if err := service.processJob(ctx, job); !errors.Is(err, publishErr) {
+			t.Fatalf("processJob error = %v, want publication failure", err)
+		}
+		if executeCalls != 1 || publishCalls != 1 {
+			t.Fatalf("execute/publish calls = %d/%d, want 1/1", executeCalls, publishCalls)
+		}
+
+		pending, err := rdb.XPending(ctx, redisx.JudgeJobsKey, redisx.JudgeConsumerGroup).Result()
+		if err != nil {
+			t.Fatalf("XPENDING: %v", err)
+		}
+		if pending.Count != 1 {
+			t.Fatalf("XPENDING count = %d, want 1", pending.Count)
+		}
+		pendingEntries, err := rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: redisx.JudgeJobsKey,
+			Group:  redisx.JudgeConsumerGroup,
+			Start:  "-",
+			End:    "+",
+			Count:  2,
+		}).Result()
+		if err != nil {
+			t.Fatalf("XPENDING range: %v", err)
+		}
+		if len(pendingEntries) != 1 || pendingEntries[0].ID != entryID || pendingEntries[0].Consumer != "publication-failure-consumer" {
+			t.Fatalf("pending entries = %#v, want entry %q", pendingEntries, entryID)
+		}
+		streamEntries, err := rdb.XRange(ctx, redisx.JudgeJobsKey, entryID, entryID).Result()
+		if err != nil {
+			t.Fatalf("XRANGE pending entry: %v", err)
+		}
+		if len(streamEntries) != 1 || streamEntries[0].ID != entryID {
+			t.Fatalf("stream entries = %#v, want undeleted entry %q", streamEntries, entryID)
+		}
+
+		var attempts, testsPassed int
+		var failureKind string
+		if err := pool.QueryRow(ctx, `
+			SELECT attempts, tests_passed, failure_kind
+			FROM submissions
+			WHERE id = $1
+		`, fixture.submissionID).Scan(&attempts, &testsPassed, &failureKind); err != nil {
+			t.Fatalf("query publication-failure submission result: %v", err)
+		}
+		if attempts != 1 || testsPassed != 2 || failureKind != "wrong_answer" {
+			t.Fatalf("attempts/tests/failure = %d/%d/%q", attempts, testsPassed, failureKind)
+		}
+		assertCompletedJudgeState(t, pool, fixture.submissionID, fixture.matchID, "fail", uuid.Nil)
+	})
 }
 
 func judgeServiceIntegrationRedis(t *testing.T) *redis.Client {
@@ -152,7 +361,7 @@ func judgeServiceIntegrationRedis(t *testing.T) *redis.Client {
 	if address == "" {
 		address = "localhost:6379"
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: address, DB: 13})
+	rdb := redis.NewClient(&redis.Options{Addr: address, DB: 12})
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		_ = rdb.Close()
 		t.Fatalf("connect to integration Redis: %v", err)

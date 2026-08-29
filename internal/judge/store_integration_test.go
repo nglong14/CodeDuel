@@ -235,6 +235,9 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			err        error
 		}
 		start := make(chan struct{})
+		var startOnce sync.Once
+		releaseStart := func() { startOnce.Do(func() { close(start) }) }
+		defer releaseStart()
 		results := make(chan completionCall, 2)
 		var ready sync.WaitGroup
 		ready.Add(2)
@@ -248,10 +251,18 @@ func TestPostgresStoreIntegration(t *testing.T) {
 				results <- completionCall{completion: completion, err: err}
 			}()
 		}
-		ready.Wait()
-		close(start)
+		allReady := make(chan struct{})
+		go func() {
+			ready.Wait()
+			close(allReady)
+		}()
+		receiveJudgeTest(t, allReady, "simultaneous completion readiness")
+		releaseStart()
 
-		calls := [2]completionCall{<-results, <-results}
+		calls := [2]completionCall{
+			receiveJudgeTest(t, results, "first simultaneous completion"),
+			receiveJudgeTest(t, results, "second simultaneous completion"),
+		}
 		for i, call := range calls {
 			if call.err != nil {
 				t.Fatalf("concurrent Complete call %d: %v", i+1, call.err)
@@ -423,6 +434,10 @@ func judgeStoreIntegrationPostgres(t *testing.T) *pgxpool.Pool {
 		admin.Close()
 		t.Fatalf("create integration database: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+database+" WITH (FORCE)")
+		admin.Close()
+	})
 
 	testURL, err := url.Parse(baseDSN)
 	if err != nil {
@@ -437,14 +452,9 @@ func judgeStoreIntegrationPostgres(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("open integration database: %v", err)
 	}
+	t.Cleanup(pool.Close)
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
 		t.Fatalf("connect to test database: %v", err)
 	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+database+" WITH (FORCE)")
-		admin.Close()
-	})
 	return pool
 }
