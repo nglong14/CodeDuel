@@ -43,6 +43,9 @@ jobs:
  
       - name: Build
         run: go build -v ./...
+
+      - name: Build sandbox images
+        run: make sandbox-images
  
   test:
     name: Unit tests

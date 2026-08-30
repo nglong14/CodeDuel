@@ -15,6 +15,7 @@ import (
 
 	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
+	"github.com/nglong14/CodeDuel/internal/submission"
 )
 
 const (
@@ -27,23 +28,24 @@ const (
 
 // conn wraps a WebSocket so reader, heartbeat, and pub/sub never write concurrently.
 type conn struct {
-	ctx             context.Context
-	userID          uuid.UUID
-	connectionID    uuid.UUID
-	presenceKey     string
-	route           string
-	ws              *websocket.Conn
-	send            chan []byte
-	closed          chan struct{}
-	writeMu         sync.Mutex
-	closeOnce       sync.Once
-	cleanupOnce     sync.Once
-	registry        *Registry
-	registered      bool
-	logger          *slog.Logger
-	enqueue         func(context.Context, redisx.QueueMember) error
-	refreshPresence func(context.Context) error
-	onClose         func()
+	ctx              context.Context
+	userID           uuid.UUID
+	connectionID     uuid.UUID
+	presenceKey      string
+	route            string
+	ws               *websocket.Conn
+	send             chan []byte
+	closed           chan struct{}
+	writeMu          sync.Mutex
+	closeOnce        sync.Once
+	cleanupOnce      sync.Once
+	registry         *Registry
+	registered       bool
+	logger           *slog.Logger
+	enqueue          func(context.Context, redisx.QueueMember) error
+	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error)
+	refreshPresence  func(context.Context) error
+	onClose          func()
 }
 
 func newConn(userID uuid.UUID, ws *websocket.Conn, registry *Registry) *conn {
@@ -160,7 +162,8 @@ func (c *conn) writePump() {
 }
 
 type inboundIntent struct {
-	typ string
+	typ        string
+	submission proto.SubmitCodeData
 }
 
 func decodeInbound(raw []byte) (inboundIntent, string) {
@@ -176,14 +179,11 @@ func decodeInbound(raw []byte) (inboundIntent, string) {
 		}
 		return inboundIntent{typ: proto.TypeJoinQueue}, ""
 	case proto.TypeSubmitCode:
-		var data proto.SubmitCodeData
-		if err := env.DecodeData(&data); err != nil {
+		data, err := proto.DecodeSubmitCodeData(env.Data)
+		if err != nil {
 			return inboundIntent{}, "invalid submit_code"
 		}
-		if data.Language == "" || data.Code == "" {
-			return inboundIntent{}, "invalid submit_code"
-		}
-		return inboundIntent{typ: proto.TypeSubmitCode}, ""
+		return inboundIntent{typ: proto.TypeSubmitCode, submission: data}, ""
 	default:
 		return inboundIntent{}, "unknown message type"
 	}
@@ -212,8 +212,24 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		}
 		return nil, nil
 	case proto.TypeSubmitCode:
+		if c.acceptSubmission == nil {
+			return encodeError("unable to accept submission")
+		}
+		matchID, _ := uuid.Parse(intent.submission.MatchID)
+		requestID, _ := uuid.Parse(intent.submission.RequestID)
+		submissionID, err := c.acceptSubmission(c.ctx, submission.Request{
+			PlayerID:  c.userID,
+			MatchID:   matchID,
+			RequestID: requestID,
+			Language:  intent.submission.Language,
+			Code:      intent.submission.Code,
+		})
+		if err != nil {
+			c.logger.Warn("accept submission failed", "user_id", c.userID, "err", err)
+			return encodeSubmissionError(err)
+		}
 		return proto.Encode(proto.TypeJudging, proto.JudgingData{
-			SubmissionID: uuid.New().String(),
+			SubmissionID: submissionID.String(),
 		})
 	default:
 		return encodeError("unknown message type")
@@ -237,4 +253,21 @@ func decodeEmptyData(raw json.RawMessage) error {
 
 func encodeError(message string) ([]byte, error) {
 	return proto.Encode(proto.TypeError, proto.ErrorData{Message: message})
+}
+
+func encodeSubmissionError(err error) ([]byte, error) {
+	switch {
+	case errors.Is(err, submission.ErrInvalidRequest):
+		return encodeError("invalid request")
+	case errors.Is(err, submission.ErrNotMatchPlayer):
+		return encodeError("not a match player")
+	case errors.Is(err, submission.ErrDeadlinePassed):
+		return encodeError("deadline passed")
+	case errors.Is(err, submission.ErrMatchNotFound), errors.Is(err, submission.ErrMatchNotActive):
+		return encodeError("match not active")
+	case errors.Is(err, submission.ErrIdempotencyConflict):
+		return encodeError("idempotency conflict")
+	default:
+		return encodeError("unable to accept submission")
+	}
 }

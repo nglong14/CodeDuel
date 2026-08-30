@@ -14,6 +14,7 @@ import (
 
 	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
+	"github.com/nglong14/CodeDuel/internal/submission"
 )
 
 func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
@@ -42,15 +43,26 @@ func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
 }
 
 func TestHandleInboundSubmitCodeJudging(t *testing.T) {
+	userID := uuid.New()
+	matchID := uuid.New()
+	requestID := uuid.New()
+	submissionID := uuid.New()
 	raw, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
-		Language: "python",
-		Code:     "print(1)",
+		MatchID:   matchID.String(),
+		RequestID: requestID.String(),
+		Language:  "python",
+		Code:      "print(1)",
 	})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	c := newConn(uuid.New(), nil, NewRegistry())
+	c := newConn(userID, nil, NewRegistry())
+	var got submission.Request
+	c.acceptSubmission = func(_ context.Context, request submission.Request) (uuid.UUID, error) {
+		got = request
+		return submissionID, nil
+	}
 	resp, err := c.handleInbound(raw)
 	if err != nil {
 		t.Fatalf("handleInbound: %v", err)
@@ -68,8 +80,50 @@ func TestHandleInboundSubmitCodeJudging(t *testing.T) {
 	if err := env.DecodeData(&data); err != nil {
 		t.Fatalf("DecodeData: %v", err)
 	}
-	if _, err := uuid.Parse(data.SubmissionID); err != nil {
-		t.Fatalf("submission_id %q: %v", data.SubmissionID, err)
+	if data.SubmissionID != submissionID.String() {
+		t.Fatalf("submission_id = %q, want %q", data.SubmissionID, submissionID)
+	}
+	if got.PlayerID != userID || got.MatchID != matchID || got.RequestID != requestID || got.Language != "python" || got.Code != "print(1)" {
+		t.Fatalf("submission request = %#v", got)
+	}
+}
+
+func TestHandleInboundSubmitCodeMapsServiceErrors(t *testing.T) {
+	raw, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
+		MatchID:   uuid.NewString(),
+		RequestID: uuid.NewString(),
+		Language:  "python",
+		Code:      "print(1)",
+	})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"invalid request", submission.ErrInvalidRequest, "invalid request"},
+		{"not a player", submission.ErrNotMatchPlayer, "not a match player"},
+		{"deadline", submission.ErrDeadlinePassed, "deadline passed"},
+		{"not found", submission.ErrMatchNotFound, "match not active"},
+		{"inactive", submission.ErrMatchNotActive, "match not active"},
+		{"conflict", submission.ErrIdempotencyConflict, "idempotency conflict"},
+		{"database", errors.New("database unavailable"), "unable to accept submission"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newConn(uuid.New(), nil, NewRegistry())
+			c.acceptSubmission = func(context.Context, submission.Request) (uuid.UUID, error) {
+				return uuid.Nil, tt.err
+			}
+			resp, handleErr := c.handleInbound(raw)
+			if handleErr != nil {
+				t.Fatalf("handleInbound: %v", handleErr)
+			}
+			assertErrorMessage(t, resp, tt.want)
+		})
 	}
 }
 
@@ -136,6 +190,7 @@ func TestHandleInboundRejects(t *testing.T) {
 		{"unknown type", unknown, "unknown message type"},
 		{"empty submit", emptySubmit, "invalid submit_code"},
 		{"join with fields", invalidJoin, "invalid join_queue"},
+		{"submit unknown field", []byte(`{"type":"submit_code","data":{"match_id":"11111111-1111-1111-1111-111111111111","request_id":"22222222-2222-2222-2222-222222222222","language":"python","code":"print(1)","extra":true}}`), "invalid submit_code"},
 	}
 
 	for _, tt := range tests {
@@ -197,6 +252,7 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 		}
 		c := newConn(userID, ws, registry)
 		c.enqueue = func(context.Context, redisx.QueueMember) error { return nil }
+		c.acceptSubmission = func(context.Context, submission.Request) (uuid.UUID, error) { return uuid.New(), nil }
 		registry.Add(c)
 		c.serve()
 	}))
@@ -217,8 +273,10 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 		t.Fatalf("write join: %v", err)
 	}
 	submit, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
-		Language: "python",
-		Code:     "print(1)",
+		MatchID:   uuid.NewString(),
+		RequestID: uuid.NewString(),
+		Language:  "python",
+		Code:      "print(1)",
 	})
 	if err != nil {
 		t.Fatalf("Encode: %v", err)

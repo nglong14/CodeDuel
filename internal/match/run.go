@@ -2,15 +2,26 @@ package match
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	"github.com/nglong14/CodeDuel/internal/redisx"
+	"github.com/nglong14/CodeDuel/internal/submission"
 )
 
 func Run(ctx context.Context, deps *app.Dependencies) error {
 	if deps.Config.Match.Duration.Milliseconds() <= 0 {
 		return fmt.Errorf("match duration must be at least one millisecond")
+	}
+	dispatcher, err := submission.NewDispatcher(
+		deps.Postgres,
+		redisx.NewJudgeQueue(deps.Redis),
+		deps.Config.Match.SubmissionReenqueueAfter,
+		submission.DefaultDispatchBatchSize,
+	)
+	if err != nil {
+		return err
 	}
 	queue := redisx.NewQueue(deps.Redis, redisx.DefaultScanLimit)
 	service, err := newService(
@@ -31,7 +42,18 @@ func Run(ctx context.Context, deps *app.Dependencies) error {
 		"redis_addr", deps.Config.Redis.Addr,
 		"match_duration", deps.Config.Match.Duration,
 	)
-	err = service.run(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	dispatchDone := make(chan error, 1)
+	go func() {
+		dispatchDone <- runSubmissionDispatcher(runCtx, deps.Logger, dispatcher, deps.Config.Match.SubmissionDispatchInterval)
+	}()
+	err = service.run(runCtx)
+	cancel()
+	dispatchErr := <-dispatchDone
+	if err == nil && dispatchErr != nil && !errors.Is(dispatchErr, context.Canceled) {
+		err = dispatchErr
+	}
 	deps.Logger.Info("shutting down")
 	return err
 }

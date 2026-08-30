@@ -15,6 +15,9 @@ func TestKeyHelpers(t *testing.T) {
 	if got, want := PresenceKey(userID, connectionID), "codeduel:presence:11111111-1111-1111-1111-111111111111:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"; got != want {
 		t.Fatalf("PresenceKey = %q, want %q", got, want)
 	}
+	if JudgeJobsKey != "codeduel:judge:jobs" || JudgeConsumerGroup != "codeduel:judges" {
+		t.Fatalf("judge stream = %q, group = %q", JudgeJobsKey, JudgeConsumerGroup)
+	}
 }
 
 func TestQueueMemberRoundTrip(t *testing.T) {

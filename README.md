@@ -4,8 +4,10 @@ CodeDuel is a Go backend for real-time programming duels. One binary runs as a
 Gateway, Match, Judge, or Reaper role, with PostgreSQL as the system of record and
 Redis for matchmaking and event delivery.
 
-Phase 3 currently provides authenticated WebSockets, connection presence leases,
-atomic FIFO matchmaking, transactional match creation, and `match_start` fan-out.
+Phase 4.6 is implemented. Durable submissions are distributed across a bounded Judge
+worker pool, claimed from PostgreSQL, executed in pinned Python, C++, or Java Docker
+sandboxes, and completed with token-fenced verdict persistence, atomic winner
+selection, stable result publication, and acknowledgment last.
 
 ## Requirements
 
@@ -54,9 +56,39 @@ go build ./...
 make lint
 ```
 
-Integration tests use Redis databases 14 and 15 and create a temporary PostgreSQL
+Integration tests use isolated Redis databases and create a temporary PostgreSQL
 database per test. Override dependency addresses with `REDIS_TEST_ADDR` and
 `POSTGRES_TEST_DSN` when needed.
+
+## Judge Sandboxes
+
+Build the digest-pinned language images before starting the Judge role:
+
+```sh
+make sandbox-images
+make run-judge
+```
+
+`JUDGE_CONCURRENCY` bounds active sandbox workers, with one Redis consumer per worker
+and no job prefetch beyond available slots. Shutdown stops intake immediately, lets
+in-flight jobs drain for the total execution and cleanup budget, then force-cancels
+remaining work. Interrupted jobs stay pending with a PostgreSQL attempt lease for the
+Phase 5 Reaper; Redis Pub/Sub result delivery remains best-effort.
+
+Run Docker boundary tests explicitly:
+
+```sh
+make test-docker-integration
+```
+
+The normal Go test suite does not connect to Docker. Sandbox tests create real
+containers and intentionally exercise output, memory, PID, network, and timeout
+limits. Run them only on a disposable local or dedicated Judge worker host.
+
+Access to the Docker daemon is effectively host-root access. Do not co-locate a
+public Judge with Gateway, PostgreSQL, or Redis and treat Docker as a VM-grade
+security boundary. Production hostile multi-tenant execution requires stronger
+isolation such as gVisor, Kata Containers, or microVMs on dedicated workers.
 
 Stop local infrastructure with:
 
