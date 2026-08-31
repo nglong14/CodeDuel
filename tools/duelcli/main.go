@@ -97,6 +97,7 @@ func run() error {
 				return
 			}
 			rememberMatchStart(msg, matches)
+			noteMatchEnd(msg)
 			fmt.Println(string(msg))
 		}
 	}()
@@ -187,6 +188,24 @@ func rememberMatchStart(raw []byte, matches *matchState) {
 		return
 	}
 	matches.set(matchID)
+}
+
+func noteMatchEnd(raw []byte) {
+	env, err := proto.Decode(raw)
+	if err != nil || env.Type != proto.TypeMatchEnd {
+		return
+	}
+	var data proto.MatchEndData
+	if err := env.DecodeData(&data); err != nil {
+		return
+	}
+	if data.WinnerID != "" {
+		fmt.Fprintf(os.Stderr, "match ended %s outcome=%s winner=%s tests=%d/%d\n",
+			data.MatchID, data.Outcome, data.WinnerID, data.TestsPassed, data.TotalTests)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "match ended %s outcome=%s tests=%d/%d\n",
+		data.MatchID, data.Outcome, data.TestsPassed, data.TotalTests)
 }
 
 func parseIntent(line string, matchID uuid.UUID) ([]byte, error) {
