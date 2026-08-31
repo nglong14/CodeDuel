@@ -13,8 +13,6 @@ const (
 	resultKindWinner     = "winner-result"
 )
 
-var resultEventNamespace = uuid.MustParse("ed186aa4-1a2e-5df6-8cc8-16de9f6d82e0")
-
 type resultEvent struct {
 	RecipientID uuid.UUID
 	Payload     []byte
@@ -98,6 +96,5 @@ func buildResultEvents(completed completedSubmission) ([]resultEvent, error) {
 }
 
 func stableResultEventID(kind string, submissionID, recipientID uuid.UUID) uuid.UUID {
-	name := fmt.Sprintf("codeduel:result:%s:%s:%s", kind, submissionID, recipientID)
-	return uuid.NewSHA1(resultEventNamespace, []byte(name))
+	return proto.StableEventID(kind, submissionID, recipientID)
 }

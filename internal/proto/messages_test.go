@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestEncodeDecodeJoinQueue(t *testing.T) {
@@ -150,6 +152,49 @@ func TestEncodeDecodeResult(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestEncodeDecodeMatchEnd(t *testing.T) {
+	want := MatchEndData{
+		EventID:     "55555555-5555-5555-5555-555555555555",
+		MatchID:     "11111111-1111-1111-1111-111111111111",
+		WinnerID:    "22222222-2222-2222-2222-222222222222",
+		Outcome:     OutcomeWin,
+		TestsPassed: 2,
+		TotalTests:  3,
+	}
+	raw, err := Encode(TypeMatchEnd, want)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != TypeMatchEnd {
+		t.Fatalf("type = %q, want %q", env.Type, TypeMatchEnd)
+	}
+
+	var got MatchEndData
+	if err := env.DecodeData(&got); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestStableEventID(t *testing.T) {
+	scope := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	recipient := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	want := uuid.MustParse("6e12cabe-af50-57d0-a645-3ca3780bea5d")
+
+	first := StableEventID("submission-result", scope, recipient)
+	second := StableEventID("submission-result", scope, recipient)
+	if first != want || second != want {
+		t.Fatalf("event IDs = (%s, %s), want %s", first, second, want)
 	}
 }
 

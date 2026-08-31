@@ -122,6 +122,48 @@ func (q *JudgeQueue) Read(ctx context.Context, consumer string, count int64, blo
 	return jobs, nil
 }
 
+// ReclaimIdle claims abandoned PEL entries whose idle time meets minIdle.
+// start should be "0-0" for the first page; next is the cursor for the next page.
+func (q *JudgeQueue) ReclaimIdle(
+	ctx context.Context,
+	consumer string,
+	minIdle time.Duration,
+	start string,
+	count int64,
+) ([]JudgeJob, string, error) {
+	if q == nil || q.client == nil {
+		return nil, "", errors.New("reclaim idle judge jobs: missing Redis client")
+	}
+	if consumer == "" || minIdle < 0 || start == "" || count <= 0 {
+		return nil, "", errors.New("reclaim idle judge jobs: invalid arguments")
+	}
+	messages, next, err := q.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+		Stream:   JudgeJobsKey,
+		Group:    JudgeConsumerGroup,
+		Consumer: consumer,
+		MinIdle:  minIdle,
+		Start:    start,
+		Count:    count,
+	}).Result()
+	if errors.Is(err, redis.Nil) {
+		if ctx.Err() != nil {
+			return nil, "", ctx.Err()
+		}
+		return nil, "0-0", nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("reclaim idle judge jobs: %w", err)
+	}
+	if next == "" {
+		next = "0-0"
+	}
+	jobs := make([]JudgeJob, 0, len(messages))
+	for _, message := range messages {
+		jobs = append(jobs, decodeJudgeJob(message))
+	}
+	return jobs, next, nil
+}
+
 // Finalize atomically acknowledges and removes one successfully processed entry.
 func (q *JudgeQueue) Finalize(ctx context.Context, entryID string) error {
 	if q == nil || q.client == nil {

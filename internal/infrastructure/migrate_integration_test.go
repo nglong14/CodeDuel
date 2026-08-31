@@ -117,7 +117,7 @@ func TestSubmissionLifecycleMigrationBackfillsAndRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create rollback migrator: %v", err)
 	}
-	if err := rollbackMigrator.Steps(-1); err != nil && err != migrate.ErrNoChange {
+	if err := rollbackMigrator.Migrate(3); err != nil && err != migrate.ErrNoChange {
 		_, _ = rollbackMigrator.Close()
 		t.Fatalf("roll back lifecycle migration: %v", err)
 	}

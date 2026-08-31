@@ -94,6 +94,21 @@ func TestRememberMatchStart(t *testing.T) {
 	}
 }
 
+func TestNoteMatchEnd(t *testing.T) {
+	raw, err := proto.Encode(proto.TypeMatchEnd, proto.MatchEndData{
+		EventID:     uuid.NewString(),
+		MatchID:     uuid.NewString(),
+		Outcome:     proto.OutcomeDraw,
+		TestsPassed: 1,
+		TotalTests:  3,
+	})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	noteMatchEnd(raw)
+	noteMatchEnd([]byte(`{"type":"result","data":{}}`))
+}
+
 func TestParseIntentRejects(t *testing.T) {
 	if _, err := parseIntent("nope", uuid.Nil); err == nil {
 		t.Fatal("expected error for unknown command")

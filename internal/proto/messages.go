@@ -20,6 +20,7 @@ const (
 	TypeMatchStart = "match_start"
 	TypeJudging    = "judging"
 	TypeResult     = "result"
+	TypeMatchEnd   = "match_end"
 	TypeError      = "error"
 
 	VerdictPass    = "pass"
@@ -29,9 +30,19 @@ const (
 	VerdictFailed  = "failed"
 	OutcomeWin     = "win"
 	OutcomeLoss    = "loss"
+	OutcomeDraw    = "draw"
 
 	MaxSubmissionCodeBytes = 64 << 10
 )
+
+var eventIDNamespace = uuid.MustParse("ed186aa4-1a2e-5df6-8cc8-16de9f6d82e0")
+
+// StableEventID is a deterministic UUID for a publishable event so retries can
+// reuse the same identifier. The name format is kept for Phase 4 result IDs.
+func StableEventID(kind string, scope, recipient uuid.UUID) uuid.UUID {
+	name := fmt.Sprintf("codeduel:result:%s:%s:%s", kind, scope, recipient)
+	return uuid.NewSHA1(eventIDNamespace, []byte(name))
+}
 
 type Envelope struct {
 	Type string          `json:"type"`
@@ -67,6 +78,15 @@ type ResultData struct {
 	TotalTests   int    `json:"total_tests"`
 	WinnerID     string `json:"winner_id,omitempty"`
 	Outcome      string `json:"outcome,omitempty"`
+}
+
+type MatchEndData struct {
+	EventID     string `json:"event_id"`
+	MatchID     string `json:"match_id"`
+	WinnerID    string `json:"winner_id,omitempty"`
+	Outcome     string `json:"outcome"`
+	TestsPassed int    `json:"tests_passed"`
+	TotalTests  int    `json:"total_tests"`
 }
 
 type ErrorData struct {
