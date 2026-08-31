@@ -17,6 +17,7 @@ type Config struct {
 	Log      LogConfig
 	Gateway  GatewayConfig
 	Judge    JudgeConfig
+	Reaper   ReaperConfig
 }
 
 type PostgresConfig struct {
@@ -63,6 +64,13 @@ type JudgeConfig struct {
 	JavaImage       string
 }
 
+type ReaperConfig struct {
+	Interval      time.Duration
+	MaxAttempts   int
+	StreamMinIdle time.Duration
+	BatchSize     int
+}
+
 const judgeSetupMargin = 5 * time.Second
 
 func (c JudgeConfig) Validate() error {
@@ -93,6 +101,25 @@ func (c JudgeConfig) Validate() error {
 	return nil
 }
 
+func (c ReaperConfig) Validate(attemptLease time.Duration) error {
+	if c.Interval <= 0 {
+		return fmt.Errorf("REAPER_INTERVAL must be positive")
+	}
+	if c.MaxAttempts <= 0 {
+		return fmt.Errorf("REAPER_MAX_ATTEMPTS must be positive")
+	}
+	if c.BatchSize <= 0 {
+		return fmt.Errorf("REAPER_BATCH_SIZE must be positive")
+	}
+	if c.StreamMinIdle <= 0 {
+		return fmt.Errorf("REAPER_STREAM_MIN_IDLE must be positive")
+	}
+	if c.StreamMinIdle <= attemptLease {
+		return fmt.Errorf("REAPER_STREAM_MIN_IDLE must exceed JUDGE_ATTEMPT_LEASE")
+	}
+	return nil
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -109,6 +136,10 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse SUBMISSION_REENQUEUE_AFTER: must be a positive duration")
 	}
 	judge, err := loadJudgeConfig()
+	if err != nil {
+		return nil, err
+	}
+	reaper, err := loadReaperConfig(judge.AttemptLease)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +164,8 @@ func Load() (*Config, error) {
 			Addr:      envOr("GATEWAY_ADDR", ":8080"),
 			JWTSecret: envOr("JWT_SECRET", "codeduel-dev-secret"),
 		},
-		Judge: judge,
+		Judge:  judge,
+		Reaper: reaper,
 	}
 
 	return cfg, nil
@@ -199,6 +231,35 @@ func loadJudgeConfig() (JudgeConfig, error) {
 	cfg.Concurrency = int(concurrency)
 	if err := cfg.Validate(); err != nil {
 		return JudgeConfig{}, fmt.Errorf("validate Judge config: %w", err)
+	}
+	return cfg, nil
+}
+
+func loadReaperConfig(attemptLease time.Duration) (ReaperConfig, error) {
+	interval, err := positiveDuration("REAPER_INTERVAL", "10s")
+	if err != nil {
+		return ReaperConfig{}, err
+	}
+	streamMinIdle, err := positiveDuration("REAPER_STREAM_MIN_IDLE", "2m")
+	if err != nil {
+		return ReaperConfig{}, err
+	}
+	maxAttempts, err := positiveInt64("REAPER_MAX_ATTEMPTS", "3")
+	if err != nil {
+		return ReaperConfig{}, err
+	}
+	batchSize, err := positiveInt64("REAPER_BATCH_SIZE", "32")
+	if err != nil {
+		return ReaperConfig{}, err
+	}
+	cfg := ReaperConfig{
+		Interval:      interval,
+		MaxAttempts:   int(maxAttempts),
+		StreamMinIdle: streamMinIdle,
+		BatchSize:     int(batchSize),
+	}
+	if err := cfg.Validate(attemptLease); err != nil {
+		return ReaperConfig{}, fmt.Errorf("validate Reaper config: %w", err)
 	}
 	return cfg, nil
 }

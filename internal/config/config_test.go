@@ -89,6 +89,32 @@ func TestLoadRejectsInvalidJudgeConfig(t *testing.T) {
 	}
 }
 
+func TestLoadReaperDefaults(t *testing.T) {
+	t.Setenv("REAPER_INTERVAL", "")
+	t.Setenv("REAPER_MAX_ATTEMPTS", "")
+	t.Setenv("REAPER_STREAM_MIN_IDLE", "")
+	t.Setenv("REAPER_BATCH_SIZE", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Reaper.Interval != 10*time.Second || cfg.Reaper.MaxAttempts != 3 ||
+		cfg.Reaper.StreamMinIdle != 2*time.Minute || cfg.Reaper.BatchSize != 32 {
+		t.Fatalf("Reaper defaults = %#v", cfg.Reaper)
+	}
+	if cfg.Reaper.StreamMinIdle <= cfg.Judge.AttemptLease {
+		t.Fatalf("stream min idle %v does not exceed attempt lease %v", cfg.Reaper.StreamMinIdle, cfg.Judge.AttemptLease)
+	}
+}
+
+func TestLoadRejectsShortReaperStreamMinIdle(t *testing.T) {
+	t.Setenv("JUDGE_ATTEMPT_LEASE", "1m")
+	t.Setenv("REAPER_STREAM_MIN_IDLE", "1m")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load returned nil error for stream min idle equal to attempt lease")
+	}
+}
+
 func TestJudgeConfigRejectsShortLeaseAndCodeLimit(t *testing.T) {
 	cfg, err := loadJudgeConfig()
 	if err != nil {

@@ -108,6 +108,50 @@ func TestJudgeQueueIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("reclaim idle claims abandoned entries and leaves fresh ones", func(t *testing.T) {
+		flushIntegrationRedis(t, rdb)
+		queue := NewJudgeQueue(rdb)
+		if err := queue.EnsureGroup(ctx); err != nil {
+			t.Fatalf("EnsureGroup: %v", err)
+		}
+		idleID := uuid.New()
+		freshID := uuid.New()
+		if _, err := queue.Enqueue(ctx, idleID); err != nil {
+			t.Fatalf("enqueue idle: %v", err)
+		}
+		if _, err := queue.Enqueue(ctx, freshID); err != nil {
+			t.Fatalf("enqueue fresh: %v", err)
+		}
+		idleJobs, err := queue.Read(ctx, "abandoned-worker", 1, time.Second)
+		if err != nil || len(idleJobs) != 1 || idleJobs[0].SubmissionID != idleID {
+			t.Fatalf("read idle = %#v, %v", idleJobs, err)
+		}
+
+		fresh, next, err := queue.ReclaimIdle(ctx, "reaper", time.Hour, "0-0", 16)
+		if err != nil || len(fresh) != 0 {
+			t.Fatalf("ReclaimIdle fresh = %#v, next %q, %v", fresh, next, err)
+		}
+
+		reclaimed, next, err := queue.ReclaimIdle(ctx, "reaper", 0, "0-0", 16)
+		if err != nil || next == "" || len(reclaimed) != 1 || reclaimed[0].SubmissionID != idleID || reclaimed[0].DecodeErr != nil {
+			t.Fatalf("ReclaimIdle idle = %#v, next %q, %v", reclaimed, next, err)
+		}
+		if err := queue.Finalize(ctx, reclaimed[0].EntryID); err != nil {
+			t.Fatalf("Finalize reclaimed: %v", err)
+		}
+		pending, err := rdb.XPending(ctx, JudgeJobsKey, JudgeConsumerGroup).Result()
+		if err != nil {
+			t.Fatalf("XPENDING: %v", err)
+		}
+		if pending.Count != 0 {
+			t.Fatalf("pending count = %d, want 0 after reclaim finalize", pending.Count)
+		}
+		remaining, err := queue.Read(ctx, "live-worker", 1, time.Second)
+		if err != nil || len(remaining) != 1 || remaining[0].SubmissionID != freshID {
+			t.Fatalf("fresh job = %#v, %v", remaining, err)
+		}
+	})
+
 	t.Run("cancellation interrupts blocking read", func(t *testing.T) {
 		flushIntegrationRedis(t, rdb)
 		queue := NewJudgeQueue(rdb)
