@@ -12,7 +12,10 @@ Stack: **Go, PostgreSQL, Redis, Docker**. One binary runs every role, selected w
 
 ![CodeDuel architecture](./assets/codeduel-architecture.png)
 
-> Diagram source: [Eraser workspace](https://app.eraser.io/workspace/QuL5MAUh4xotoI8tQm1w).
+> Diagram source: [Eraser](https://app.eraser.io/workspace/QuL5MAUh4xotoI8tQm1w?diagram=aE7Tf70aCQ-DPEWmgvoi).
+
+The diagram matches the system as built, with one exception: the clients shown are the
+planned React SPA. The only client today is the `duelcli` WebSocket test tool.
 
 | Role | Responsibility |
 | --- | --- |
