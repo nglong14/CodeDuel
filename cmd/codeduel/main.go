@@ -44,6 +44,9 @@ func run(roleName, direction string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if err := cfg.ValidateForRole(roleName); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
 
 	logger := app.NewLogger(cfg.Log).With("role", roleName)
 

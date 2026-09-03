@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7f3c1a2b-9d4e-4f6a-8b2c-1e5d7a9c4b08",
     "name": "CodeDuel Gateway",
-    "description": "Phase 2 gateway: GET /healthz (no auth) and GET /ws (JWT handshake, then WebSocket).\n\nThere is no login endpoint. A collection pre-request script mints an HS256 JWT (`sub`={{userId}}, `exp` in 1h) using {{jwtSecret}}. That secret must match the gateway's JWT_SECRET, and userId must exist in `users`.\n\nAuth runs before the WebSocket upgrade: handshake failures are HTTP 401 with body `unauthorized`. A successful connect is 101 Switching Protocols.\n\nAfter the socket is up, send proto envelopes from the WebSocket request (examples in that folder):\n- `{\"type\":\"join_queue\"}`\n- `{\"type\":\"submit_code\",\"data\":{\"language\":\"python\",\"code\":\"print(1)\"}}`\n- unknown types should come back as `{\"type\":\"error\",\"data\":{\"message\":\"...\"}}`",
+    "description": "Phase 2 gateway: GET /healthz (no auth) and GET /ws (JWT handshake, then WebSocket).\n\nRegistration and login are available on POST /api/auth/register and POST /api/auth/login. A collection pre-request script still mints a seed HS256 JWT (`sub`={{userId}}, `exp` in 1h) using {{jwtSecret}}. That secret must match the gateway's JWT_SECRET, and userId must exist in `users`.\n\nAuth runs before the WebSocket upgrade: handshake failures are HTTP 401 with body `unauthorized`. A successful connect is 101 Switching Protocols.\n\nAfter the socket is up, send proto envelopes from the WebSocket request (examples in that folder):\n- `{\"type\":\"join_queue\"}`\n- `{\"type\":\"submit_code\",\"data\":{\"language\":\"python\",\"code\":\"print(1)\"}}`\n- unknown types should come back as `{\"type\":\"error\",\"data\":{\"message\":\"...\"}}`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "event": [
@@ -431,10 +431,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type\": \"submit_code\",\n  \"data\": {\n    \"language\": \"python\",\n    \"code\": \"print(1)\"\n  }\n}"
+              "raw": "{\n  \"type\": \"submit_code\",\n  \"data\": {\n    \"match_id\": \"{{matchId}}\",\n    \"request_id\": \"{{requestId}}\",\n    \"language\": \"python\",\n    \"code\": \"print(1)\"\n  }\n}"
             },
             "url": "{{wsUrl}}/ws",
-            "description": "Copy the body into an open WebSocket connection. Expected MVP reply: judging ack."
+            "description": "Copy the body into an open WebSocket connection, replacing {{matchId}} and {{requestId}} with real values. Expected MVP reply: judging ack."
           }
         },
         {
@@ -453,6 +453,143 @@
             },
             "url": "{{wsUrl}}/ws",
             "description": "Copy the body into an open WebSocket connection. Expected reply: {\"type\":\"error\",\"data\":{\"message\":\"...\"}}."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication (v1)",
+      "description": "Registration, login, current-user, and readiness REST endpoints. Register or login capture an {{authToken}} from the response; GET /api/me uses Authorization: Bearer {{authToken}}. REST routes accept Bearer tokens only (no ?token=).",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('returns token and user', function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.token).to.be.a('string');",
+                  "    pm.expect(body.user.email).to.eql(pm.environment.get('registerEmail'));",
+                  "    pm.environment.set('authToken', body.token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{registerEmail}}\",\n  \"password\": \"{{registerPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Creates a password account and returns 201 {token, expires_at, user}. Duplicate normalized email returns 409 email_taken. Bodies over 4 KiB return 413."
+          }
+        },
+        {
+          "name": "POST /api/auth/login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('returns token and user', function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.token).to.be.a('string');",
+                  "    pm.environment.set('authToken', body.token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{registerEmail}}\",\n  \"password\": \"{{registerPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Returns 200 {token, expires_at, user}. Wrong password and unknown/CLI-only accounts return the same 401 invalid_credentials."
+          }
+        },
+        {
+          "name": "GET /api/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('returns current user', function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.user.id).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/me",
+            "description": "Returns the caller as {user}. Query tokens are rejected; only a single Authorization: Bearer header is accepted."
+          }
+        },
+        {
+          "name": "GET /readyz",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('readiness responds', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/readyz",
+            "description": "Reports 200 when PostgreSQL and Redis are reachable, otherwise 503."
           }
         }
       ]

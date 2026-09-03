@@ -37,7 +37,10 @@ func TestConcurrentMatchServicesIntegration(t *testing.T) {
 	queue := redisx.NewQueue(rdb, redisx.DefaultScanLimit)
 	for range playerCount {
 		userID := uuid.New()
-		if _, err := pool.Exec(ctx, `INSERT INTO users (id) VALUES ($1)`, userID); err != nil {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO users (id, email, display_name)
+			VALUES ($1, $2::text || '@match.test', $2::text)
+		`, userID, userID.String()); err != nil {
 			t.Fatalf("insert user: %v", err)
 		}
 		member := redisx.QueueMember{

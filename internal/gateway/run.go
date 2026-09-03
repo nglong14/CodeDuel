@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/nglong14/CodeDuel/internal/app"
+	accountauth "github.com/nglong14/CodeDuel/internal/auth"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 	"github.com/nglong14/CodeDuel/internal/submission"
 )
@@ -81,7 +82,12 @@ func newHandlerWithSubmission(
 	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error),
 ) http.Handler {
 	mux := http.NewServeMux()
+	authHandlers := newAuthHTTP(deps)
 	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("GET /readyz", handleReadyz(deps))
+	mux.HandleFunc("POST /api/auth/register", authHandlers.register)
+	mux.HandleFunc("POST /api/auth/login", authHandlers.login)
+	mux.HandleFunc("GET /api/me", authHandlers.me)
 	mux.HandleFunc("GET /ws", handleWS(ctx, deps, registry, acceptSubmission))
 	return mux
 }
@@ -97,12 +103,18 @@ func handleWS(
 	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error),
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := Authenticate(r.Context(), r, deps.Config.Gateway.JWTSecret, deps.Postgres)
+		principal, err := AuthenticateWebSocket(
+			r.Context(),
+			r,
+			deps.Config.Gateway.JWTSecret,
+			accountauth.NewService(deps.Postgres),
+		)
 		if err != nil {
 			deps.Logger.Info("unauthorized", "err", err)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		userID := principal.User.ID
 
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -111,6 +123,7 @@ func handleWS(
 		}
 
 		c := newConn(userID, ws, registry)
+		c.tokenExpiresAt = principal.ExpiresAt
 		c.ctx = ctx
 		c.logger = deps.Logger
 		c.acceptSubmission = acceptSubmission
