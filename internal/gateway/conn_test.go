@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -304,6 +305,50 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 		t.Fatalf("write submit on replacement: %v", err)
 	}
 	assertType(t, second, proto.TypeJudging)
+}
+
+func TestConnClosesWhenTokenExpires(t *testing.T) {
+	registry := NewRegistry()
+	userID := testUserID()
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		c := newConn(userID, ws, registry)
+		c.tokenExpiresAt = time.Now().Add(100 * time.Millisecond)
+		registry.Add(c)
+		c.serve()
+	}))
+	defer s.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(s.URL, "http")
+	client, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
+	messageType, payload, err := client.ReadMessage()
+	if err != nil {
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) && closeErr.Code == websocket.ClosePolicyViolation {
+			return
+		}
+		t.Fatalf("read close frame: %v", err)
+	}
+	if messageType != websocket.CloseMessage {
+		t.Fatalf("message type = %v, want close", messageType)
+	}
+	if len(payload) < 2 {
+		t.Fatal("close payload is too short")
+	}
+	if code := int(binary.BigEndian.Uint16(payload)); code != websocket.ClosePolicyViolation {
+		t.Fatalf("close code = %d, want %d", code, websocket.ClosePolicyViolation)
+	}
 }
 
 func assertErrorMessage(t *testing.T, raw []byte, want string) {

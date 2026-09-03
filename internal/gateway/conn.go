@@ -46,6 +46,7 @@ type conn struct {
 	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error)
 	refreshPresence  func(context.Context) error
 	onClose          func()
+	tokenExpiresAt   time.Time
 }
 
 func newConn(userID uuid.UUID, ws *websocket.Conn, registry *Registry) *conn {
@@ -141,6 +142,13 @@ func (c *conn) readPump() {
 func (c *conn) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
+	var expiry <-chan time.Time
+	var expiryTimer *time.Timer
+	if !c.tokenExpiresAt.IsZero() {
+		expiryTimer = time.NewTimer(time.Until(c.tokenExpiresAt))
+		expiry = expiryTimer.C
+		defer expiryTimer.Stop()
+	}
 
 	for {
 		select {
@@ -154,6 +162,10 @@ func (c *conn) writePump() {
 				c.close()
 				return
 			}
+		case <-expiry:
+			_ = c.write(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "token expired"))
+			c.close()
+			return
 		case <-c.closed:
 			_ = c.write(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			return

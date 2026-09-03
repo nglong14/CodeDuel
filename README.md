@@ -19,7 +19,7 @@ planned React SPA. The only client today is the `duelcli` WebSocket test tool.
 
 | Role | Responsibility |
 | --- | --- |
-| `gateway` | Terminates player WebSockets, validates JWTs, owns presence leases, admits submissions, and fans published events out to the sockets it owns. |
+| `gateway` | Serves registration, login, the current-user REST API, and readiness probes; terminates player WebSockets, validates JWTs, owns presence leases, admits submissions, and fans published events out to the sockets it owns. |
 | `match` | Atomically pairs the two oldest live players, creates the authoritative match, and redispatches submissions whose immediate Redis enqueue failed. |
 | `judge` | Consumes the Redis Stream, executes untrusted code in a disposable Docker sandbox, persists the verdict, and claims the winner. |
 | `reaper` | Single-leader periodic loop that reclaims expired leases, redispatches abandoned Stream work, and finalizes matches that pass their deadline. |
@@ -153,8 +153,10 @@ Configuration is read from the environment and optionally from a `.env` file; se
 | --- | --- | --- |
 | `POSTGRES_DSN` | `postgres://codeduel:codeduel@localhost:5433/codeduel?sslmode=disable` | System of record |
 | `REDIS_ADDR` | `localhost:6379` | Matchmaking, queue, and fan-out |
-| `GATEWAY_ADDR` | `:8080` | WebSocket and health listener |
-| `JWT_SECRET` | `codeduel-dev-secret` | HS256 signing key for dev tokens |
+| `GATEWAY_ADDR` | `:8080` | WebSocket and REST listener |
+| `JWT_SECRET` | `codeduel-dev-secret` | HS256 signing key for dev tokens; the production gateway requires an explicit secret of at least 32 bytes |
+| `APP_ENV` | `development` | `development`, `test`, or `production`; `production` refuses the default/short `JWT_SECRET` for the gateway role |
+| `AUTH_TOKEN_TTL` | `24h` | Lifetime of JWTs minted for registration and login |
 | `MATCH_DURATION` | `10m` | Deadline applied at match creation |
 | `JUDGE_CONCURRENCY` | `2` | Maximum concurrent sandboxes per Judge |
 | `JUDGE_ATTEMPT_LEASE` | `1m` | Must exceed total execution plus cleanup |
@@ -162,9 +164,32 @@ Configuration is read from the environment and optionally from a `.env` file; se
 | `REAPER_MAX_ATTEMPTS` | `3` | Infrastructure retries before `failed` |
 | `REAPER_STREAM_MIN_IDLE` | `2m` | Must exceed `JUDGE_ATTEMPT_LEASE` |
 
-Auth is intentionally minimal for the MVP: `duelcli` mints an HS256 JWT whose `sub` is a
-seeded user UUID, and the Gateway verifies the signature and expiry. Real registration
-and login are out of scope.
+`duelcli` still mints its own HS256 JWT whose `sub` is a seeded user UUID, and the Gateway
+verifies the signature and expiry, so CLI-only accounts (`password_hash` is `NULL`) keep
+working. Password accounts are created through the REST API:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/auth/register` | Create an account; `201 {token, expires_at, user}` |
+| `POST /api/auth/login` | Authenticate; `200 {token, expires_at, user}` |
+| `GET /api/me` | Current user; requires `Authorization: Bearer <token>` |
+| `GET /readyz` | Dependency readiness (`200` or `503`); `GET /healthz` stays liveness-only |
+
+Example:
+
+```sh
+curl -i -X POST localhost:8080/api/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"player@example.com","password":"hunter2hunter2"}'
+```
+
+Auth bodies are capped at 4 KiB, unknown JSON fields and trailing data are rejected, and
+`Cache-Control: no-store` is set on auth and current-user responses. REST routes accept
+only a single Bearer header; the WebSocket handshake additionally accepts `?token=`.
+When `APP_ENV=production`, the gateway refuses to start with a missing, default, padded,
+or shorter-than-32-byte `JWT_SECRET`. Migration `000006_auth` makes `users.email` and
+`display_name` non-null; disposable development databases that contain legacy UUID-only
+users may need to be recreated (`docker compose -f deploy/docker-compose.yml down -v`).
 
 ## Verification
 

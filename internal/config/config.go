@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 )
 
 type Config struct {
+	AppEnv   string
+	Auth     AuthConfig
 	Postgres PostgresConfig
 	Redis    RedisConfig
 	Match    MatchConfig
@@ -42,6 +45,10 @@ type LogConfig struct {
 type GatewayConfig struct {
 	Addr      string
 	JWTSecret string
+}
+
+type AuthConfig struct {
+	TokenTTL time.Duration
 }
 
 type JudgeConfig struct {
@@ -122,6 +129,12 @@ func (c ReaperConfig) Validate(attemptLease time.Duration) error {
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
+	appEnv := envOr("APP_ENV", "development")
+	switch appEnv {
+	case "development", "test", "production":
+	default:
+		return nil, fmt.Errorf("APP_ENV must be development, test, or production")
+	}
 
 	matchDuration, err := time.ParseDuration(envOr("MATCH_DURATION", "10m"))
 	if err != nil {
@@ -135,6 +148,10 @@ func Load() (*Config, error) {
 	if err != nil || reenqueueAfter <= 0 {
 		return nil, fmt.Errorf("parse SUBMISSION_REENQUEUE_AFTER: must be a positive duration")
 	}
+	authTokenTTL, err := positiveDuration("AUTH_TOKEN_TTL", "24h")
+	if err != nil {
+		return nil, err
+	}
 	judge, err := loadJudgeConfig()
 	if err != nil {
 		return nil, err
@@ -145,6 +162,10 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
+		AppEnv: appEnv,
+		Auth: AuthConfig{
+			TokenTTL: authTokenTTL,
+		},
 		Postgres: PostgresConfig{
 			DSN: envOr("POSTGRES_DSN", "postgres://codeduel:codeduel@localhost:5433/codeduel?sslmode=disable"),
 		},
@@ -169,6 +190,20 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (c *Config) ValidateForRole(role string) error {
+	if c == nil {
+		return errors.New("missing config")
+	}
+	if role != "gateway" || c.AppEnv != "production" {
+		return nil
+	}
+	secret := c.Gateway.JWTSecret
+	if secret == "codeduel-dev-secret" || len(secret) < 32 || secret != strings.TrimSpace(secret) {
+		return fmt.Errorf("JWT_SECRET must be an explicit, unpadded secret of at least 32 bytes for the production gateway")
+	}
+	return nil
 }
 
 func loadJudgeConfig() (JudgeConfig, error) {

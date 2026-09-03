@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	"github.com/nglong14/CodeDuel/internal/config"
@@ -30,6 +31,38 @@ func TestHealthz(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestReadyzUnavailableWithoutPostgres(t *testing.T) {
+	h := newHandler(context.Background(), testGatewayDeps(), NewRegistry())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestMeRejectsQueryTokenThroughMux(t *testing.T) {
+	h := newHandler(context.Background(), testGatewayDeps(), NewRegistry())
+	raw, err := MintToken(testUserID(), testSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me?token="+raw, nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestAuthLoginRequiresJSONContentType(t *testing.T) {
+	h := newHandler(context.Background(), testGatewayDeps(), NewRegistry())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"a@b.com","password":"password1"}`))
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", rec.Code)
 	}
 }
 

@@ -350,7 +350,11 @@ func judgeStoreIntegrationFixtureForTest(
 	t.Helper()
 	ctx := context.Background()
 	fixture := judgeStoreIntegrationFixture{players: [2]uuid.UUID{uuid.New(), uuid.New()}}
-	if _, err := pool.Exec(ctx, `INSERT INTO users (id) VALUES ($1), ($2)`, fixture.players[0], fixture.players[1]); err != nil {
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, display_name)
+		VALUES ($1, $3::text || '@judge.test', $3::text),
+		       ($2, $4::text || '@judge.test', $4::text)
+	`, fixture.players[0], fixture.players[1], fixture.players[0].String(), fixture.players[1].String()); err != nil {
 		t.Fatalf("insert fixture users: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
