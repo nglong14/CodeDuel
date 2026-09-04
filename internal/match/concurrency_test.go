@@ -45,4 +45,4 @@ func (q *lockedFakeQueue) PopPair(context.Context) (*redisx.Pair, error) {
 	return pair, nil
 }
 
-func (*lockedFakeQueue) Requeue(context.Context, redisx.Pair) error { return nil }
+func (*lockedFakeQueue) Requeue(context.Context, ...redisx.QueueEntry) error { return nil }

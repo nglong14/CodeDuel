@@ -18,7 +18,7 @@ const (
 
 type pairQueue interface {
 	PopPair(context.Context) (*redisx.Pair, error)
-	Requeue(context.Context, redisx.Pair) error
+	Requeue(context.Context, ...redisx.QueueEntry) error
 }
 
 type service struct {
@@ -76,7 +76,7 @@ func (s *service) step(ctx context.Context) time.Duration {
 			requeueCtx, cancel = context.WithTimeout(context.Background(), requeueTimeout)
 		}
 		defer cancel()
-		if requeueErr := s.queue.Requeue(requeueCtx, *pair); requeueErr != nil {
+		if requeueErr := s.queue.Requeue(requeueCtx, pair[:]...); requeueErr != nil {
 			s.logger.Error("requeue pair failed", "err", requeueErr)
 		}
 		return s.retryInterval

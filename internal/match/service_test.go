@@ -18,6 +18,7 @@ type fakeQueue struct {
 	popErr       error
 	requeueErr   error
 	requeueCalls int
+	requeued     []redisx.QueueEntry
 }
 
 func (q *fakeQueue) PopPair(context.Context) (*redisx.Pair, error) {
@@ -26,8 +27,9 @@ func (q *fakeQueue) PopPair(context.Context) (*redisx.Pair, error) {
 	return pair, q.popErr
 }
 
-func (q *fakeQueue) Requeue(context.Context, redisx.Pair) error {
+func (q *fakeQueue) Requeue(_ context.Context, entries ...redisx.QueueEntry) error {
 	q.requeueCalls++
+	q.requeued = append(q.requeued, entries...)
 	return q.requeueErr
 }
 
@@ -90,8 +92,8 @@ func TestServiceRequeuesOnlyCreationFailures(t *testing.T) {
 		if delay := service.step(context.Background()); delay != service.retryInterval {
 			t.Fatalf("step delay = %v, want %v", delay, service.retryInterval)
 		}
-		if queue.requeueCalls != 1 || publishCalls != 0 {
-			t.Fatalf("requeue calls = %d, publish calls = %d", queue.requeueCalls, publishCalls)
+		if queue.requeueCalls != 1 || len(queue.requeued) != len(pair) || publishCalls != 0 {
+			t.Fatalf("requeue calls = %d, entries = %d, publish calls = %d", queue.requeueCalls, len(queue.requeued), publishCalls)
 		}
 	})
 

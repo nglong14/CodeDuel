@@ -117,23 +117,26 @@ func (q *Queue) PopPair(ctx context.Context) (*Pair, error) {
 	return &pair, nil
 }
 
-func (q *Queue) Requeue(ctx context.Context, pair Pair) error {
-	if q == nil || q.client == nil {
-		return fmt.Errorf("requeue pair: missing Redis client")
+func (q *Queue) Requeue(ctx context.Context, entries ...QueueEntry) error {
+	if len(entries) == 0 {
+		return nil
 	}
-	args := make([]any, 0, 6)
-	for i, entry := range pair {
+	if q == nil || q.client == nil {
+		return fmt.Errorf("requeue entries: missing Redis client")
+	}
+	args := make([]any, 0, len(entries)*3)
+	for i, entry := range entries {
 		if err := entry.Member.Validate(); err != nil {
-			return fmt.Errorf("requeue pair: invalid member %d: %w", i+1, err)
+			return fmt.Errorf("requeue entries: invalid member %d: %w", i+1, err)
 		}
 		if entry.encoded == "" {
-			return fmt.Errorf("requeue pair: member %d has no original encoding", i+1)
+			return fmt.Errorf("requeue entries: member %d has no original encoding", i+1)
 		}
 		args = append(args, entry.Member.UserID.String(), entry.encoded, entry.Score)
 	}
 	if _, err := requeueScript.Run(ctx, q.client,
 		[]string{QueueKey, MembersKey}, args...).Result(); err != nil {
-		return fmt.Errorf("requeue pair: run script: %w", err)
+		return fmt.Errorf("requeue entries: run script: %w", err)
 	}
 	return nil
 }

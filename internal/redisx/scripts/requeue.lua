@@ -1,5 +1,5 @@
--- restores previosly matched users back into the queues only if their data is valid and poresence is still active
--- avoiding duplicate or conflicting queue entries
+-- Restore previously popped users only when their data is valid and presence is still active,
+-- without replacing duplicate or conflicting queue entries.
 local restored = 0
 for i = 1, #ARGV, 3 do
   local user_id = ARGV[i]

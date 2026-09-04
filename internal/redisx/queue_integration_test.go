@@ -127,7 +127,7 @@ func TestQueueIntegration(t *testing.T) {
 		if err != nil || pair == nil {
 			t.Fatalf("PopPair = %#v, %v", pair, err)
 		}
-		if err := queue.Requeue(ctx, *pair); err != nil {
+		if err := queue.Requeue(ctx, pair[:]...); err != nil {
 			t.Fatalf("Requeue: %v", err)
 		}
 		if got := int64(rdb.ZScore(ctx, QueueKey, pair[0].encoded).Val()); got != firstResult.Score {
@@ -151,11 +151,88 @@ func TestQueueIntegration(t *testing.T) {
 		if err := rdb.Del(ctx, second.PresenceKey).Err(); err != nil {
 			t.Fatalf("delete second presence: %v", err)
 		}
-		if err := queue.Requeue(ctx, *poppedAgain); err != nil {
+		if err := queue.Requeue(ctx, poppedAgain[:]...); err != nil {
 			t.Fatalf("Requeue replaced pair: %v", err)
 		}
 		if got := rdb.ZCard(ctx, QueueKey).Val(); got != 1 {
 			t.Fatalf("queue size = %d, want only reconnect", got)
+		}
+	})
+
+	t.Run("partial requeue restores one entry with original score", func(t *testing.T) {
+		flushIntegrationRedis(t, rdb)
+		queue := NewQueue(rdb, DefaultScanLimit)
+		first := liveMember(t, rdb)
+		second := liveMember(t, rdb)
+		firstResult, err := queue.Enqueue(ctx, first)
+		if err != nil {
+			t.Fatalf("Enqueue first: %v", err)
+		}
+		if _, err := queue.Enqueue(ctx, second); err != nil {
+			t.Fatalf("Enqueue second: %v", err)
+		}
+		pair, err := queue.PopPair(ctx)
+		if err != nil || pair == nil {
+			t.Fatalf("PopPair = %#v, %v", pair, err)
+		}
+
+		if err := queue.Requeue(ctx, pair[0]); err != nil {
+			t.Fatalf("Requeue one entry: %v", err)
+		}
+		if got := rdb.ZCard(ctx, QueueKey).Val(); got != 1 {
+			t.Fatalf("queue size = %d, want 1", got)
+		}
+		if got := rdb.HLen(ctx, MembersKey).Val(); got != 1 {
+			t.Fatalf("member mappings = %d, want 1", got)
+		}
+		if got := int64(rdb.ZScore(ctx, QueueKey, pair[0].encoded).Val()); got != firstResult.Score {
+			t.Fatalf("restored score = %d, want %d", got, firstResult.Score)
+		}
+		if got := rdb.HGet(ctx, MembersKey, second.UserID.String()).Val(); got != "" {
+			t.Fatalf("second member mapping = %q, want empty", got)
+		}
+	})
+
+	t.Run("partial requeue does not replace reconnect", func(t *testing.T) {
+		flushIntegrationRedis(t, rdb)
+		queue := NewQueue(rdb, DefaultScanLimit)
+		first := liveMember(t, rdb)
+		second := liveMember(t, rdb)
+		if _, err := queue.Enqueue(ctx, first); err != nil {
+			t.Fatalf("Enqueue first: %v", err)
+		}
+		if _, err := queue.Enqueue(ctx, second); err != nil {
+			t.Fatalf("Enqueue second: %v", err)
+		}
+		pair, err := queue.PopPair(ctx)
+		if err != nil || pair == nil {
+			t.Fatalf("PopPair = %#v, %v", pair, err)
+		}
+
+		first.PresenceKey = PresenceKey(first.UserID, uuid.New())
+		if err := rdb.Set(ctx, first.PresenceKey, "1", time.Minute).Err(); err != nil {
+			t.Fatalf("set reconnect presence: %v", err)
+		}
+		reconnected, err := queue.Enqueue(ctx, first)
+		if err != nil {
+			t.Fatalf("Enqueue reconnect: %v", err)
+		}
+		if err := queue.Requeue(ctx, pair[0]); err != nil {
+			t.Fatalf("Requeue old entry: %v", err)
+		}
+
+		reconnectedRaw, err := encodeMember(first)
+		if err != nil {
+			t.Fatalf("encode reconnect: %v", err)
+		}
+		if got := rdb.HGet(ctx, MembersKey, first.UserID.String()).Val(); got != reconnectedRaw {
+			t.Fatalf("member mapping = %q, want reconnect %q", got, reconnectedRaw)
+		}
+		if got := rdb.ZCard(ctx, QueueKey).Val(); got != 1 {
+			t.Fatalf("queue size = %d, want 1", got)
+		}
+		if got := int64(rdb.ZScore(ctx, QueueKey, reconnectedRaw).Val()); got != reconnected.Score {
+			t.Fatalf("reconnect score = %d, want %d", got, reconnected.Score)
 		}
 	})
 
