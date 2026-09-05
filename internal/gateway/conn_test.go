@@ -241,6 +241,34 @@ func TestHandleInboundEnqueueFailureIsRetryable(t *testing.T) {
 	}
 }
 
+func TestHandleInboundRejectsPlayerWithActiveMatch(t *testing.T) {
+	matchID := uuid.New()
+	c := newConn(uuid.New(), nil, NewRegistry())
+	c.enqueue = func(context.Context, redisx.QueueMember) error {
+		return &alreadyInActiveMatchError{matchID: matchID}
+	}
+	join, err := proto.Encode(proto.TypeJoinQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode join: %v", err)
+	}
+	resp, err := c.handleInbound(join)
+	if err != nil {
+		t.Fatalf("handleInbound join: %v", err)
+	}
+
+	env, err := proto.Decode(resp)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	var data proto.ErrorData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if env.Type != proto.TypeError || data.Code != "already_in_match" || data.MatchID != matchID.String() {
+		t.Fatalf("active match response = type %q data %#v", env.Type, data)
+	}
+}
+
 func TestConnPumpsEchoAndReplace(t *testing.T) {
 	registry := NewRegistry()
 	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")

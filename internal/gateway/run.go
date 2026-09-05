@@ -129,8 +129,7 @@ func handleWS(
 		c.acceptSubmission = acceptSubmission
 		queue := redisx.NewQueue(deps.Redis, redisx.DefaultScanLimit)
 		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
-			_, enqueueErr := queue.Enqueue(callCtx, member)
-			return enqueueErr
+			return enqueueForMatch(callCtx, deps.Postgres, queue, member)
 		}
 		c.refreshPresence = func(callCtx context.Context) error {
 			refreshed, refreshErr := deps.Redis.Expire(callCtx, c.presenceKey, presenceTTL).Result()

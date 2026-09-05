@@ -90,7 +90,9 @@ type MatchEndData struct {
 }
 
 type ErrorData struct {
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
+	MatchID string `json:"match_id,omitempty"`
 }
 
 func Encode(typ string, payload any) ([]byte, error) {

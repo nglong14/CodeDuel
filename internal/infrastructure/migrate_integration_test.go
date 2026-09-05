@@ -113,6 +113,13 @@ func TestSubmissionLifecycleMigrationBackfillsAndRollsBack(t *testing.T) {
 	if winnerID != nil {
 		t.Fatalf("winner ID = %s, want NULL for legacy non-player", *winnerID)
 	}
+	var activeClaimMatchID uuid.UUID
+	if err := pool.QueryRow(ctx, `SELECT match_id FROM active_match_players WHERE user_id = $1`, playerID).Scan(&activeClaimMatchID); err != nil {
+		t.Fatalf("query backfilled active claim: %v", err)
+	}
+	if activeClaimMatchID != matchID {
+		t.Fatalf("active claim match = %s, want %s", activeClaimMatchID, matchID)
+	}
 
 	pool.Close()
 	rollbackMigrator, err := newMigrator(testDSN)
@@ -135,6 +142,13 @@ func TestSubmissionLifecycleMigrationBackfillsAndRollsBack(t *testing.T) {
 	}
 	if result != "pending" {
 		t.Fatalf("rolled back result = %q, want pending", result)
+	}
+	var activeClaimsTable *string
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('active_match_players')::text`).Scan(&activeClaimsTable); err != nil {
+		t.Fatalf("query rolled back active claims table: %v", err)
+	}
+	if activeClaimsTable != nil {
+		t.Fatalf("active_match_players remains after rollback: %s", *activeClaimsTable)
 	}
 }
 

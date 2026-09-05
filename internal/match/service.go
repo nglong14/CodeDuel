@@ -2,9 +2,13 @@ package match
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
@@ -29,6 +33,8 @@ type service struct {
 	encode        func(string, any) ([]byte, error)
 	pollInterval  time.Duration
 	retryInterval time.Duration
+	pendingMu     sync.Mutex
+	pending       []redisx.QueueEntry
 }
 
 func (s *service) run(ctx context.Context) error {
@@ -53,6 +59,9 @@ func (s *service) run(ctx context.Context) error {
 }
 
 func (s *service) step(ctx context.Context) time.Duration {
+	if !s.restorePending(ctx) {
+		return s.retryInterval
+	}
 	pair, err := s.queue.PopPair(ctx)
 	if err != nil {
 		s.logger.Error("pop pair failed", "err", err)
@@ -65,20 +74,22 @@ func (s *service) step(ctx context.Context) time.Duration {
 	players := [2]redisx.QueueMember{pair[0].Member, pair[1].Member}
 	created, err := s.create(ctx, players)
 	if err != nil {
+		var activeErr *ActiveMatchConflictError
+		var missingErr *MissingPlayersError
+		hasActive := errors.As(err, &activeErr)
+		hasMissing := errors.As(err, &missingErr)
+		if hasActive || hasMissing {
+			if !s.handleIneligiblePlayers(ctx, *pair, activeErr, missingErr) {
+				return s.retryInterval
+			}
+			return 0
+		}
 		s.logger.Error("create match failed",
 			"player_1", players[0].UserID,
 			"player_2", players[1].UserID,
 			"err", err,
 		)
-		requeueCtx := ctx
-		cancel := func() {}
-		if ctx.Err() != nil {
-			requeueCtx, cancel = context.WithTimeout(context.Background(), requeueTimeout)
-		}
-		defer cancel()
-		if requeueErr := s.queue.Requeue(requeueCtx, pair[:]...); requeueErr != nil {
-			s.logger.Error("requeue pair failed", "err", requeueErr)
-		}
+		s.requeueOrRetain(ctx, pair[:]...)
 		return s.retryInterval
 	}
 
@@ -114,6 +125,81 @@ func (s *service) step(ctx context.Context) time.Duration {
 		return s.retryInterval
 	}
 	return 0
+}
+
+func (s *service) handleIneligiblePlayers(
+	ctx context.Context,
+	pair redisx.Pair,
+	activeErr *ActiveMatchConflictError,
+	missingErr *MissingPlayersError,
+) bool {
+	eligible := make([]redisx.QueueEntry, 0, len(pair))
+	for _, entry := range pair {
+		userID := entry.Member.UserID
+		if missingErr != nil && missingErr.Has(userID) {
+			s.logger.Warn("dropping missing queued player", "user_id", userID)
+			continue
+		}
+		if activeErr != nil {
+			if matchID, active := activeErr.MatchFor(userID); active {
+				s.logger.Warn("dropping queued player with active match", "user_id", userID, "match_id", matchID)
+				s.publishActiveMatchError(ctx, entry.Member.Route, matchID)
+				continue
+			}
+		}
+		eligible = append(eligible, entry)
+	}
+
+	return s.requeueOrRetain(ctx, eligible...)
+}
+
+func (s *service) requeueOrRetain(ctx context.Context, entries ...redisx.QueueEntry) bool {
+	if len(entries) == 0 {
+		return true
+	}
+	requeueCtx := ctx
+	cancel := func() {}
+	if ctx.Err() != nil {
+		requeueCtx, cancel = context.WithTimeout(context.Background(), requeueTimeout)
+	}
+	defer cancel()
+	if err := s.queue.Requeue(requeueCtx, entries...); err != nil {
+		s.pendingMu.Lock()
+		s.pending = append(s.pending, entries...)
+		s.pendingMu.Unlock()
+		s.logger.Error("requeue players failed", "count", len(entries), "err", err)
+		return false
+	}
+	return true
+}
+
+func (s *service) restorePending(ctx context.Context) bool {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	if len(s.pending) == 0 {
+		return true
+	}
+	if err := s.queue.Requeue(ctx, s.pending...); err != nil {
+		s.logger.Error("restore pending requeue failed", "count", len(s.pending), "err", err)
+		return false
+	}
+	s.pending = nil
+	return true
+}
+
+func (s *service) publishActiveMatchError(ctx context.Context, route string, matchID uuid.UUID) {
+	payload, err := s.encode(proto.TypeError, proto.ErrorData{
+		Code:    "already_in_match",
+		Message: "player already has an active match",
+		MatchID: matchID.String(),
+	})
+	if err != nil {
+		s.logger.Error("encode active match error", "match_id", matchID, "err", err)
+		return
+	}
+	if err := s.publish(ctx, route, payload); err != nil {
+		s.logger.Error("publish active match error", "match_id", matchID, "err", err)
+	}
 }
 
 func newService(

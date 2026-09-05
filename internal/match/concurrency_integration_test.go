@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,5 +121,75 @@ func TestConcurrentMatchServicesIntegration(t *testing.T) {
 	}
 	if got := rdb.ZCard(ctx, redisx.QueueKey).Val(); got != 0 {
 		t.Fatalf("queue size = %d, want 0", got)
+	}
+}
+
+func TestConcurrentMatchCreationRejectsSharedPlayerIntegration(t *testing.T) {
+	pool := integrationPostgres(t)
+	ctx := context.Background()
+	firstPair := testPlayers()
+	thirdID := uuid.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, display_name)
+		VALUES ($1, $2::text || '@match.test', $2::text)
+	`, thirdID, thirdID.String()); err != nil {
+		t.Fatalf("insert third user: %v", err)
+	}
+	secondPair := firstPair
+	secondPair[1].UserID = thirdID
+	secondPair[1].PresenceKey = redisx.PresenceKey(thirdID, uuid.New())
+	secondPair[1].Route = redisx.UserChannel(thirdID)
+
+	type result struct {
+		created CreatedMatch
+		err     error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for _, players := range [][2]redisx.QueueMember{firstPair, secondPair} {
+		go func() {
+			ready.Done()
+			<-start
+			created, err := createMatch(ctx, pool, time.Minute, players)
+			results <- result{created: created, err: err}
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	var successes, conflicts int
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			successes++
+			if result.created.MatchID == uuid.Nil {
+				t.Fatal("successful creation returned nil match ID")
+			}
+			continue
+		}
+		var activeErr *ActiveMatchConflictError
+		if !errors.As(result.err, &activeErr) {
+			t.Fatalf("createMatch error = %v, want active conflict", result.err)
+		}
+		if _, ok := activeErr.MatchFor(firstPair[0].UserID); !ok {
+			t.Fatalf("active conflict does not include shared player: %#v", activeErr)
+		}
+		conflicts++
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes = %d, conflicts = %d; want 1 and 1", successes, conflicts)
+	}
+
+	var matches, claims int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM matches WHERE status = 'active'`).Scan(&matches); err != nil {
+		t.Fatalf("count active matches: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM active_match_players`).Scan(&claims); err != nil {
+		t.Fatalf("count active claims: %v", err)
+	}
+	if matches != 1 || claims != 2 {
+		t.Fatalf("active matches = %d, claims = %d; want 1 and 2", matches, claims)
 	}
 }

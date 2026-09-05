@@ -206,6 +206,13 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if matchStatus != "finished" || winnerID != fixture.players[0] {
 			t.Fatalf("match after pass = status %q, winner %s", matchStatus, winnerID)
 		}
+		var activeClaims int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM active_match_players WHERE match_id = $1`, fixture.matchID).Scan(&activeClaims); err != nil {
+			t.Fatalf("count active claims: %v", err)
+		}
+		if activeClaims != 0 {
+			t.Fatalf("active claims = %d, want 0 after pass", activeClaims)
+		}
 		var submissionStatus, verdict string
 		if err := pool.QueryRow(ctx, `SELECT status, result FROM submissions WHERE id = $1`, fixture.submissionID).Scan(&submissionStatus, &verdict); err != nil {
 			t.Fatalf("query passing submission: %v", err)

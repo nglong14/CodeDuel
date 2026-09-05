@@ -220,6 +220,14 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		}
 		if err := c.enqueue(c.ctx, member); err != nil {
 			c.logger.Warn("enqueue failed", "user_id", c.userID, "err", err)
+			var activeErr *alreadyInActiveMatchError
+			if errors.As(err, &activeErr) {
+				return proto.Encode(proto.TypeError, proto.ErrorData{
+					Code:    "already_in_match",
+					Message: "player already has an active match",
+					MatchID: activeErr.matchID.String(),
+				})
+			}
 			return encodeError("unable to join queue")
 		}
 		return nil, nil

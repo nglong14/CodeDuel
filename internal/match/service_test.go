@@ -130,6 +130,118 @@ func TestServiceRequeuesOnlyCreationFailures(t *testing.T) {
 	})
 }
 
+func TestServiceDropsIneligiblePlayersAndRequeuesOpponent(t *testing.T) {
+	t.Run("active player", func(t *testing.T) {
+		pair := testPair()
+		queue := &fakeQueue{pair: &pair}
+		activeMatchID := uuid.New()
+		var publishedRoute string
+		var publishedPayload []byte
+		service := mustService(t, queue,
+			func(context.Context, [2]redisx.QueueMember) (CreatedMatch, error) {
+				return CreatedMatch{}, &ActiveMatchConflictError{Claims: []ActiveMatchClaim{{
+					UserID: pair[0].Member.UserID, MatchID: activeMatchID,
+				}}}
+			},
+			func(_ context.Context, route string, payload []byte) error {
+				publishedRoute = route
+				publishedPayload = append([]byte(nil), payload...)
+				return nil
+			},
+		)
+
+		if delay := service.step(context.Background()); delay != 0 {
+			t.Fatalf("step delay = %v, want 0", delay)
+		}
+		if queue.requeueCalls != 1 || len(queue.requeued) != 1 || queue.requeued[0].Member.UserID != pair[1].Member.UserID {
+			t.Fatalf("requeued = %#v, calls = %d", queue.requeued, queue.requeueCalls)
+		}
+		if publishedRoute != pair[0].Member.Route {
+			t.Fatalf("published route = %q, want %q", publishedRoute, pair[0].Member.Route)
+		}
+		env, err := proto.Decode(publishedPayload)
+		if err != nil {
+			t.Fatalf("Decode active error: %v", err)
+		}
+		var data proto.ErrorData
+		if env.Type != proto.TypeError || env.DecodeData(&data) != nil || data.Code != "already_in_match" || data.MatchID != activeMatchID.String() {
+			t.Fatalf("active error = type %q data %#v", env.Type, data)
+		}
+	})
+
+	t.Run("missing player", func(t *testing.T) {
+		pair := testPair()
+		queue := &fakeQueue{pair: &pair}
+		service := mustService(t, queue,
+			func(context.Context, [2]redisx.QueueMember) (CreatedMatch, error) {
+				return CreatedMatch{}, &MissingPlayersError{PlayerIDs: []uuid.UUID{pair[0].Member.UserID}}
+			},
+			func(context.Context, string, []byte) error {
+				t.Fatal("publish called for missing player")
+				return nil
+			},
+		)
+
+		if delay := service.step(context.Background()); delay != 0 {
+			t.Fatalf("step delay = %v, want 0", delay)
+		}
+		if queue.requeueCalls != 1 || len(queue.requeued) != 1 || queue.requeued[0].Member.UserID != pair[1].Member.UserID {
+			t.Fatalf("requeued = %#v, calls = %d", queue.requeued, queue.requeueCalls)
+		}
+	})
+
+	t.Run("combined active and missing", func(t *testing.T) {
+		pair := testPair()
+		queue := &fakeQueue{pair: &pair}
+		service := mustService(t, queue,
+			func(context.Context, [2]redisx.QueueMember) (CreatedMatch, error) {
+				return CreatedMatch{}, errors.Join(
+					&ActiveMatchConflictError{Claims: []ActiveMatchClaim{{UserID: pair[0].Member.UserID, MatchID: uuid.New()}}},
+					&MissingPlayersError{PlayerIDs: []uuid.UUID{pair[1].Member.UserID}},
+				)
+			},
+			func(context.Context, string, []byte) error { return nil },
+		)
+
+		if delay := service.step(context.Background()); delay != 0 {
+			t.Fatalf("step delay = %v, want 0", delay)
+		}
+		if queue.requeueCalls != 0 || len(queue.requeued) != 0 {
+			t.Fatalf("requeued = %#v, calls = %d", queue.requeued, queue.requeueCalls)
+		}
+	})
+
+	t.Run("failed opponent requeue is retried before another pop", func(t *testing.T) {
+		pair := testPair()
+		queue := &fakeQueue{pair: &pair, requeueErr: errors.New("redis unavailable")}
+		activeMatchID := uuid.New()
+		createCalls := 0
+		service := mustService(t, queue,
+			func(context.Context, [2]redisx.QueueMember) (CreatedMatch, error) {
+				createCalls++
+				return CreatedMatch{}, &ActiveMatchConflictError{Claims: []ActiveMatchClaim{{
+					UserID: pair[0].Member.UserID, MatchID: activeMatchID,
+				}}}
+			},
+			func(context.Context, string, []byte) error { return nil },
+		)
+
+		if delay := service.step(context.Background()); delay != service.retryInterval {
+			t.Fatalf("first step delay = %v, want %v", delay, service.retryInterval)
+		}
+		if len(service.pending) != 1 || service.pending[0].Member.UserID != pair[1].Member.UserID {
+			t.Fatalf("pending requeue = %#v", service.pending)
+		}
+		queue.requeueErr = nil
+		if delay := service.step(context.Background()); delay != service.pollInterval {
+			t.Fatalf("retry step delay = %v, want %v", delay, service.pollInterval)
+		}
+		if len(service.pending) != 0 || queue.requeueCalls != 2 || createCalls != 1 {
+			t.Fatalf("pending = %#v, requeue calls = %d, create calls = %d", service.pending, queue.requeueCalls, createCalls)
+		}
+	})
+}
+
 func TestServiceRunStopsDuringPollWait(t *testing.T) {
 	queue := &fakeQueue{}
 	service := mustService(t, queue,

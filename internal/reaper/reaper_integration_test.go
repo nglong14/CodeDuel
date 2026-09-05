@@ -249,6 +249,13 @@ func TestReaperMatchFinalizationIntegration(t *testing.T) {
 		if status != "finished" || !winner.Valid || winner.UUID != fixture.players[0] {
 			t.Fatalf("finalized match = status %q winner %v, want finished %s", status, winner, fixture.players[0])
 		}
+		var activeClaims int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM active_match_players WHERE match_id = $1`, fixture.matchID).Scan(&activeClaims); err != nil {
+			t.Fatalf("count active claims: %v", err)
+		}
+		if activeClaims != 0 {
+			t.Fatalf("active claims = %d, want 0 after finalization", activeClaims)
+		}
 		if published.count() != 2 {
 			t.Fatalf("published %d match_end events, want 2", published.count())
 		}
