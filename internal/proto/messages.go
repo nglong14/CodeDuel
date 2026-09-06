@@ -17,6 +17,8 @@ const (
 	TypeJoinQueue  = "join_queue"
 	TypeSubmitCode = "submit_code"
 
+	TypeReady      = "ready"
+	TypeQueued     = "queued"
 	TypeMatchStart = "match_start"
 	TypeJudging    = "judging"
 	TypeResult     = "result"
@@ -50,6 +52,12 @@ type Envelope struct {
 }
 
 type JoinQueueData struct{}
+
+type ReadyData struct {
+	UserID string `json:"user_id"`
+}
+
+type QueuedData struct{}
 
 type SubmitCodeData struct {
 	MatchID   string `json:"match_id"`

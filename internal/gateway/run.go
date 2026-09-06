@@ -12,6 +12,7 @@ import (
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	accountauth "github.com/nglong14/CodeDuel/internal/auth"
+	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 	"github.com/nglong14/CodeDuel/internal/submission"
 )
@@ -150,25 +151,34 @@ func handleWS(
 		}
 		if err := deps.Redis.Set(r.Context(), c.presenceKey, "1", presenceTTL).Err(); err != nil {
 			deps.Logger.Warn("initial presence failed", "user_id", userID, "err", err)
-			c.close()
+			c.closeSetupFailure()
 			return
 		}
 
-		unsubscribe, err := subscribeUser(r.Context(), deps.Redis, userID, c)
+		sub, err := subscribeUser(r.Context(), deps.Redis, userID)
 		if err != nil {
 			deps.Logger.Warn("subscribe failed", "user_id", userID, "err", err)
+			c.closeSetupFailure()
 			deletePresence(deps, c.presenceKey)
-			c.close()
 			return
 		}
 		c.onClose = func() {
-			unsubscribe()
+			_ = sub.Close()
 			deletePresence(deps, c.presenceKey)
 		}
 		if !registry.Add(c) {
 			c.cleanup()
 			return
 		}
+		ready, err := proto.Encode(proto.TypeReady, proto.ReadyData{UserID: userID.String()})
+		if err != nil {
+			deps.Logger.Warn("encode ready failed", "user_id", userID, "err", err)
+			c.closeSetupFailure()
+			c.cleanup()
+			return
+		}
+		c.Send(ready)
+		go fanout(sub.Channel(), c)
 		deps.Logger.Info("connected", "user_id", userID, "connection_id", c.connectionID)
 		registry.Serve(c)
 		deps.Logger.Info("disconnected", "user_id", userID, "connection_id", c.connectionID)

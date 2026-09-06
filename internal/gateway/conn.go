@@ -37,6 +37,7 @@ type conn struct {
 	send             chan []byte
 	closed           chan struct{}
 	writeMu          sync.Mutex
+	deliveryMu       sync.Mutex
 	closeOnce        sync.Once
 	cleanupOnce      sync.Once
 	registry         *Registry
@@ -91,6 +92,19 @@ func (c *conn) close() {
 	})
 }
 
+func (c *conn) closeSetupFailure() {
+	if c.ws != nil {
+		c.writeMu.Lock()
+		_ = c.ws.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "connection setup failed"),
+			time.Now().Add(writeWait),
+		)
+		c.writeMu.Unlock()
+	}
+	c.close()
+}
+
 func (c *conn) Send(msg []byte) {
 	select {
 	case c.send <- msg:
@@ -129,14 +143,23 @@ func (c *conn) readPump() {
 		if err != nil {
 			return
 		}
-		resp, err := c.handleInbound(raw)
-		if err != nil {
+		if err := c.handleAndSend(raw); err != nil {
 			return
 		}
-		if len(resp) > 0 {
-			c.Send(resp)
-		}
 	}
+}
+
+func (c *conn) handleAndSend(raw []byte) error {
+	c.deliveryMu.Lock()
+	defer c.deliveryMu.Unlock()
+	resp, err := c.handleInbound(raw)
+	if err != nil {
+		return err
+	}
+	if len(resp) > 0 {
+		c.Send(resp)
+	}
+	return nil
 }
 
 func (c *conn) writePump() {
@@ -210,7 +233,7 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 	switch intent.typ {
 	case proto.TypeJoinQueue:
 		if c.enqueue == nil {
-			return encodeError("unable to join queue")
+			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
 		member := redisx.QueueMember{
 			UserID:      c.userID,
@@ -228,9 +251,9 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 					MatchID: activeErr.matchID.String(),
 				})
 			}
-			return encodeError("unable to join queue")
+			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
-		return nil, nil
+		return proto.Encode(proto.TypeQueued, proto.QueuedData{})
 	case proto.TypeSubmitCode:
 		if c.acceptSubmission == nil {
 			return encodeError("unable to accept submission")
@@ -273,6 +296,10 @@ func decodeEmptyData(raw json.RawMessage) error {
 
 func encodeError(message string) ([]byte, error) {
 	return proto.Encode(proto.TypeError, proto.ErrorData{Message: message})
+}
+
+func encodeErrorCode(code, message string) ([]byte, error) {
+	return proto.Encode(proto.TypeError, proto.ErrorData{Code: code, Message: message})
 }
 
 func encodeSubmissionError(err error) ([]byte, error) {

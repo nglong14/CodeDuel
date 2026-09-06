@@ -94,6 +94,35 @@ func TestRememberMatchStart(t *testing.T) {
 	}
 }
 
+func TestIsReady(t *testing.T) {
+	raw, err := proto.Encode(proto.TypeReady, proto.ReadyData{UserID: uuid.NewString()})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !isReady(raw) {
+		t.Fatal("valid ready message was not recognized")
+	}
+	if isReady([]byte(`{"type":"queued","data":{}}`)) {
+		t.Fatal("queued message was recognized as ready")
+	}
+	if isReady([]byte(`{"type":"ready","data":{"user_id":"invalid"}}`)) {
+		t.Fatal("ready message with invalid user was recognized")
+	}
+}
+
+func TestIsQueued(t *testing.T) {
+	raw, err := proto.Encode(proto.TypeQueued, proto.QueuedData{})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !isQueued(raw) {
+		t.Fatal("valid queued message was not recognized")
+	}
+	if isQueued([]byte(`{"type":"ready","data":{}}`)) {
+		t.Fatal("ready message was recognized as queued")
+	}
+}
+
 func TestNoteMatchEnd(t *testing.T) {
 	raw, err := proto.Encode(proto.TypeMatchEnd, proto.MatchEndData{
 		EventID:     uuid.NewString(),

@@ -83,12 +83,13 @@ func run() error {
 	defer func() { _ = conn.Close() }()
 
 	fmt.Fprintf(os.Stderr, "connected to %s\n", *url)
-	fmt.Fprintln(os.Stderr, "commands: join | submit <language> <code> | submit-file <language> <path>")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	errCh := make(chan error, 1)
+	ready := make(chan struct{})
+	var readyOnce sync.Once
 	go func() {
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -98,10 +99,22 @@ func run() error {
 			}
 			rememberMatchStart(msg, matches)
 			noteMatchEnd(msg)
+			if isReady(msg) {
+				readyOnce.Do(func() { close(ready) })
+			}
+			if isQueued(msg) {
+				fmt.Fprintln(os.Stderr, "joined matchmaking queue")
+			}
 			fmt.Println(string(msg))
 		}
 	}()
 	go func() {
+		select {
+		case <-ready:
+			fmt.Fprintln(os.Stderr, "commands: join | submit <language> <code> | submit-file <language> <path>")
+		case <-ctx.Done():
+			return
+		}
 		sc := bufio.NewScanner(os.Stdin)
 		sc.Buffer(make([]byte, 0, 64*1024), 256*1024)
 		for sc.Scan() {
@@ -140,6 +153,28 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func isReady(raw []byte) bool {
+	env, err := proto.Decode(raw)
+	if err != nil || env.Type != proto.TypeReady {
+		return false
+	}
+	var data proto.ReadyData
+	if err := env.DecodeData(&data); err != nil {
+		return false
+	}
+	userID, err := uuid.Parse(data.UserID)
+	return err == nil && userID != uuid.Nil
+}
+
+func isQueued(raw []byte) bool {
+	env, err := proto.Decode(raw)
+	if err != nil || env.Type != proto.TypeQueued {
+		return false
+	}
+	var data proto.QueuedData
+	return env.DecodeData(&data) == nil
 }
 
 func resolveToken(user, secret, token string) (string, error) {

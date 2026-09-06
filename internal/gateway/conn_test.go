@@ -18,7 +18,7 @@ import (
 	"github.com/nglong14/CodeDuel/internal/submission"
 )
 
-func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
+func TestHandleInboundJoinQueueReturnsQueued(t *testing.T) {
 	raw, err := proto.Encode(proto.TypeJoinQueue, nil)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
@@ -35,9 +35,7 @@ func TestHandleInboundJoinQueueEnqueuesWithoutResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("conn.handleInbound: %v", err)
 	}
-	if resp != nil {
-		t.Fatalf("response = %s, want nil", resp)
-	}
+	assertEnvelopeType(t, resp, proto.TypeQueued)
 	if got.UserID != userID || got.PresenceKey != c.presenceKey || got.Route != redisx.UserChannel(userID) {
 		t.Fatalf("enqueued member = %#v", got)
 	}
@@ -236,8 +234,60 @@ func TestHandleInboundEnqueueFailureIsRetryable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleInbound retry: %v", err)
 	}
-	if resp != nil {
-		t.Fatalf("retry response = %s, want nil", resp)
+	assertEnvelopeType(t, resp, proto.TypeQueued)
+}
+
+func TestHandleInboundRepeatedJoinReturnsQueued(t *testing.T) {
+	c := newConn(uuid.New(), nil, NewRegistry())
+	calls := 0
+	c.enqueue = func(context.Context, redisx.QueueMember) error {
+		calls++
+		return nil
+	}
+	join, err := proto.Encode(proto.TypeJoinQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode join: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		resp, err := c.handleInbound(join)
+		if err != nil {
+			t.Fatalf("handleInbound join %d: %v", i+1, err)
+		}
+		assertEnvelopeType(t, resp, proto.TypeQueued)
+	}
+	if calls != 2 {
+		t.Fatalf("enqueue calls = %d, want 2", calls)
+	}
+}
+
+func TestHandleAndSendEnqueueFailureReturnsOnlyQueueUnavailable(t *testing.T) {
+	c := newConn(uuid.New(), nil, NewRegistry())
+	c.enqueue = func(context.Context, redisx.QueueMember) error { return errors.New("redis unavailable") }
+	join, err := proto.Encode(proto.TypeJoinQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode join: %v", err)
+	}
+	if err := c.handleAndSend(join); err != nil {
+		t.Fatalf("handleAndSend: %v", err)
+	}
+
+	raw := <-c.send
+	env, err := proto.Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	var data proto.ErrorData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if env.Type != proto.TypeError || data.Code != "queue_unavailable" {
+		t.Fatalf("response = type %q data %#v", env.Type, data)
+	}
+	select {
+	case extra := <-c.send:
+		t.Fatalf("unexpected second response: %s", extra)
+	default:
 	}
 }
 
@@ -313,6 +363,7 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 	if err := first.WriteMessage(websocket.TextMessage, submit); err != nil {
 		t.Fatalf("write submit: %v", err)
 	}
+	assertType(t, first, proto.TypeQueued)
 	assertType(t, first, proto.TypeJudging)
 
 	second, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -332,7 +383,99 @@ func TestConnPumpsEchoAndReplace(t *testing.T) {
 	if err := second.WriteMessage(websocket.TextMessage, submit); err != nil {
 		t.Fatalf("write submit on replacement: %v", err)
 	}
+	assertType(t, second, proto.TypeQueued)
 	assertType(t, second, proto.TypeJudging)
+}
+
+func TestConnDoesNotProcessCommandsBeforeReady(t *testing.T) {
+	registry := NewRegistry()
+	userID := testUserID()
+	setupStarted := make(chan struct{})
+	initialized := make(chan struct{})
+	enqueued := make(chan struct{}, 1)
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		c := newConn(userID, ws, registry)
+		c.enqueue = func(context.Context, redisx.QueueMember) error {
+			enqueued <- struct{}{}
+			return nil
+		}
+		close(setupStarted)
+		<-initialized
+		ready, err := proto.Encode(proto.TypeReady, proto.ReadyData{UserID: userID.String()})
+		if err != nil {
+			c.closeSetupFailure()
+			return
+		}
+		registry.Add(c)
+		c.Send(ready)
+		c.serve()
+	}))
+	defer s.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(s.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	<-setupStarted
+
+	join, err := proto.Encode(proto.TypeJoinQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode join: %v", err)
+	}
+	if err := client.WriteMessage(websocket.TextMessage, join); err != nil {
+		t.Fatalf("write join: %v", err)
+	}
+	select {
+	case <-enqueued:
+		t.Fatal("join was processed before initialization")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(initialized)
+	assertType(t, client, proto.TypeReady)
+	assertType(t, client, proto.TypeQueued)
+	select {
+	case <-enqueued:
+	case <-time.After(time.Second):
+		t.Fatal("join was not processed after initialization")
+	}
+}
+
+func TestConnSetupFailureClosesWith1011BeforeApplicationFrame(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		newConn(testUserID(), ws, NewRegistry()).closeSetupFailure()
+	}))
+	defer s.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(s.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := client.ReadMessage()
+	if err == nil {
+		t.Fatalf("received application frame before setup failure: %s", raw)
+	}
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) {
+		t.Fatalf("ReadMessage error = %v, want close error", err)
+	}
+	if closeErr.Code != websocket.CloseInternalServerErr {
+		t.Fatalf("close code = %d, want %d", closeErr.Code, websocket.CloseInternalServerErr)
+	}
 }
 
 func TestConnClosesWhenTokenExpires(t *testing.T) {
@@ -404,6 +547,11 @@ func assertType(t *testing.T, ws *websocket.Conn, want string) {
 	if err != nil {
 		t.Fatalf("ReadMessage: %v", err)
 	}
+	assertEnvelopeType(t, raw, want)
+}
+
+func assertEnvelopeType(t *testing.T, raw []byte, want string) {
+	t.Helper()
 	env, err := proto.Decode(raw)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)

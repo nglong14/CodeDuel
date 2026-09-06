@@ -46,6 +46,47 @@ func TestEncodeJoinQueueNilPayload(t *testing.T) {
 	}
 }
 
+func TestEncodeDecodeReady(t *testing.T) {
+	want := ReadyData{UserID: "11111111-1111-1111-1111-111111111111"}
+	raw, err := Encode(TypeReady, want)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != TypeReady {
+		t.Fatalf("type = %q, want %q", env.Type, TypeReady)
+	}
+	var got ReadyData
+	if err := env.DecodeData(&got); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestEncodeDecodeQueued(t *testing.T) {
+	raw, err := Encode(TypeQueued, QueuedData{})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != TypeQueued {
+		t.Fatalf("type = %q, want %q", env.Type, TypeQueued)
+	}
+	if string(env.Data) != "{}" {
+		t.Fatalf("data = %s, want {}", env.Data)
+	}
+}
+
 func TestEncodeDecodeSubmitCode(t *testing.T) {
 	want := SubmitCodeData{
 		MatchID:   "11111111-1111-1111-1111-111111111111",

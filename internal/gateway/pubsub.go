@@ -14,20 +14,19 @@ func userChannel(userID uuid.UUID) string {
 	return redisx.UserChannel(userID)
 }
 
-func subscribeUser(ctx context.Context, rdb *redis.Client, userID uuid.UUID, c *conn) (func(), error) {
+func subscribeUser(ctx context.Context, rdb *redis.Client, userID uuid.UUID) (*redis.PubSub, error) {
 	sub := rdb.Subscribe(ctx, userChannel(userID))
 	if _, err := sub.Receive(ctx); err != nil {
 		_ = sub.Close()
 		return nil, fmt.Errorf("subscribe user channel: %w", err)
 	}
-	go fanout(sub.Channel(), c)
-	return func() {
-		_ = sub.Close()
-	}, nil
+	return sub, nil
 }
 
 func fanout(ch <-chan *redis.Message, c *conn) {
 	for msg := range ch {
+		c.deliveryMu.Lock()
 		c.Send([]byte(msg.Payload))
+		c.deliveryMu.Unlock()
 	}
 }
