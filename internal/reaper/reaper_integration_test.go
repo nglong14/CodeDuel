@@ -91,6 +91,7 @@ func TestReaperLeaseReclaimIntegration(t *testing.T) {
 			t.Fatalf("DecodeData: %v", err)
 		}
 		if data.Verdict != proto.VerdictFailed || data.SubmissionID != fixture.submissionID.String() ||
+			data.RequestID != fixture.requestID.String() ||
 			data.WinnerID != "" || data.Outcome != "" || data.TestsPassed != 0 || data.TotalTests != 3 {
 			t.Fatalf("poison result = %#v", data)
 		}
@@ -249,6 +250,13 @@ func TestReaperMatchFinalizationIntegration(t *testing.T) {
 		if status != "finished" || !winner.Valid || winner.UUID != fixture.players[0] {
 			t.Fatalf("finalized match = status %q winner %v, want finished %s", status, winner, fixture.players[0])
 		}
+		var activeClaims int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM active_match_players WHERE match_id = $1`, fixture.matchID).Scan(&activeClaims); err != nil {
+			t.Fatalf("count active claims: %v", err)
+		}
+		if activeClaims != 0 {
+			t.Fatalf("active claims = %d, want 0 after finalization", activeClaims)
+		}
 		if published.count() != 2 {
 			t.Fatalf("published %d match_end events, want 2", published.count())
 		}
@@ -349,6 +357,7 @@ type reaperIntegrationFixtureState struct {
 	matchID      uuid.UUID
 	problemID    uuid.UUID
 	submissionID uuid.UUID
+	requestID    uuid.UUID
 	players      [2]uuid.UUID
 }
 
@@ -434,6 +443,7 @@ func reaperIntegrationFixture(t *testing.T, pool *pgxpool.Pool, opts reaperFixtu
 	t.Helper()
 	ctx := context.Background()
 	fixture := reaperIntegrationFixtureState{players: [2]uuid.UUID{uuid.New(), uuid.New()}}
+	fixture.requestID = uuid.New()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO users (id, email, display_name)
 		VALUES ($1, $3::text || '@reaper.test', $3::text),
@@ -469,7 +479,7 @@ func reaperIntegrationFixture(t *testing.T, pool *pgxpool.Pool, opts reaperFixtu
 		INSERT INTO submissions (match_id, player_id, request_id, language, code)
 		VALUES ($1, $2, $3, 'python', 'print(1)')
 		RETURNING id
-	`, fixture.matchID, fixture.players[0], uuid.New()).Scan(&fixture.submissionID); err != nil {
+	`, fixture.matchID, fixture.players[0], fixture.requestID).Scan(&fixture.submissionID); err != nil {
 		t.Fatalf("insert fixture submission: %v", err)
 	}
 	applySubmissionState(t, pool, fixture.submissionID, opts)

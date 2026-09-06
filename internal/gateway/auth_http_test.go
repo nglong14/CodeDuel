@@ -299,6 +299,26 @@ func TestMeRejectsQueryTokenAndMissingCredentials(t *testing.T) {
 	}
 }
 
+func TestMeReturnsInternalErrorForAccountFailure(t *testing.T) {
+	accounts := &fakeAccounts{byIDFn: func(context.Context, uuid.UUID) (authpkg.User, error) {
+		return authpkg.User{}, errors.New("database unavailable")
+	}}
+	raw, err := MintToken(testUserID(), testSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("MintToken: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	recorder := httptest.NewRecorder()
+	testAuthHTTP(accounts).me(recorder, req)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	if got := recorder.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("WWW-Authenticate = %q, want empty", got)
+	}
+}
+
 func TestWriteJSONAndErrorAreWellFormed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeJSON(rec, http.StatusOK, meResponse{User: testUser()})

@@ -10,10 +10,11 @@ import (
 
 func TestBuildFailedResultEvent(t *testing.T) {
 	submissionID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	requestID := uuid.MustParse("77777777-7777-7777-7777-777777777777")
 	matchID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
 	playerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 
-	event, err := buildFailedResultEvent(submissionID, matchID, playerID, 3)
+	event, err := buildFailedResultEvent(submissionID, requestID, matchID, playerID, 3)
 	if err != nil {
 		t.Fatalf("buildFailedResultEvent: %v", err)
 	}
@@ -33,14 +34,15 @@ func TestBuildFailedResultEvent(t *testing.T) {
 		t.Fatalf("DecodeData: %v", err)
 	}
 	wantID := proto.StableEventID(eventKindInfrastructureFailed, submissionID, playerID).String()
-	if data.EventID != wantID || data.SubmissionID != submissionID.String() ||
+	if data.EventID != wantID || data.RequestID != requestID.String() ||
+		data.SubmissionID != submissionID.String() ||
 		data.MatchID != matchID.String() || data.PlayerID != playerID.String() ||
 		data.Verdict != proto.VerdictFailed || data.TestsPassed != 0 || data.TotalTests != 3 ||
 		data.WinnerID != "" || data.Outcome != "" {
 		t.Fatalf("failed result = %#v", data)
 	}
 
-	again, err := buildFailedResultEvent(submissionID, matchID, playerID, 3)
+	again, err := buildFailedResultEvent(submissionID, requestID, matchID, playerID, 3)
 	if err != nil {
 		t.Fatalf("buildFailedResultEvent second: %v", err)
 	}

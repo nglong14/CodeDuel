@@ -100,8 +100,13 @@ func (h *authHTTP) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	principal, err := AuthenticateREST(r.Context(), r, h.secret, h.accounts)
 	if err != nil {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeAPIError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+		if errors.Is(err, errUnauthorized) {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeAPIError(w, http.StatusUnauthorized, "unauthorized", "authentication is required")
+			return
+		}
+		h.logger.Warn("authenticate current user failed", "err", err)
+		writeAPIError(w, http.StatusInternalServerError, "internal_error", "an internal error occurred")
 		return
 	}
 	writeJSON(w, http.StatusOK, meResponse{User: principal.User})

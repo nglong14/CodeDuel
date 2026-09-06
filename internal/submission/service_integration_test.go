@@ -131,9 +131,9 @@ func TestAcceptRejectsInvalidMatchStateIntegration(t *testing.T) {
 		{
 			name: "expired match",
 			matchID: func() uuid.UUID {
-				return createMatch(t, pool, "active", -time.Hour, integrationPlayerOne)
+				return createMatch(t, pool, "active", -time.Hour, integrationPlayerTwo)
 			},
-			player: integrationPlayerOne,
+			player: integrationPlayerTwo,
 			want:   ErrDeadlinePassed,
 		},
 	}

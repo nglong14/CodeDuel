@@ -23,7 +23,7 @@ func (r *Registry) Add(c *conn) bool {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		c.close()
+		c.closeSetupFailure()
 		return false
 	}
 	if !c.registered {

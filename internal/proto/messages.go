@@ -17,6 +17,8 @@ const (
 	TypeJoinQueue  = "join_queue"
 	TypeSubmitCode = "submit_code"
 
+	TypeReady      = "ready"
+	TypeQueued     = "queued"
 	TypeMatchStart = "match_start"
 	TypeJudging    = "judging"
 	TypeResult     = "result"
@@ -51,6 +53,12 @@ type Envelope struct {
 
 type JoinQueueData struct{}
 
+type ReadyData struct {
+	UserID string `json:"user_id"`
+}
+
+type QueuedData struct{}
+
 type SubmitCodeData struct {
 	MatchID   string `json:"match_id"`
 	RequestID string `json:"request_id"`
@@ -65,11 +73,13 @@ type MatchStartData struct {
 }
 
 type JudgingData struct {
+	RequestID    string `json:"request_id"`
 	SubmissionID string `json:"submission_id"`
 }
 
 type ResultData struct {
 	EventID      string `json:"event_id"`
+	RequestID    string `json:"request_id"`
 	SubmissionID string `json:"submission_id"`
 	MatchID      string `json:"match_id"`
 	PlayerID     string `json:"player_id"`
@@ -90,7 +100,10 @@ type MatchEndData struct {
 }
 
 type ErrorData struct {
-	Message string `json:"message"`
+	Code      string `json:"code,omitempty"`
+	Message   string `json:"message"`
+	MatchID   string `json:"match_id,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func Encode(typ string, payload any) ([]byte, error) {

@@ -76,7 +76,8 @@ func TestJudgeServiceIntegration(t *testing.T) {
 		for index, event := range published {
 			data := decodeResultEvent(t, event.Payload)
 			if event.RecipientID != fixture.players[index] || data.Verdict != proto.VerdictPass ||
-				data.WinnerID != fixture.players[0].String() || data.TotalTests != 3 {
+				data.WinnerID != fixture.players[0].String() || data.TotalTests != 3 ||
+				data.RequestID != fixture.requestID.String() {
 				t.Fatalf("published event %d = recipient %s, data %#v", index, event.RecipientID, data)
 			}
 		}
@@ -137,7 +138,8 @@ func TestJudgeServiceIntegration(t *testing.T) {
 			t.Fatalf("published events = %#v", published)
 		}
 		data := decodeResultEvent(t, published[0].Payload)
-		if data.Verdict != proto.VerdictFail || data.TestsPassed != 1 || data.WinnerID != "" || data.Outcome != "" {
+		if data.Verdict != proto.VerdictFail || data.TestsPassed != 1 || data.WinnerID != "" || data.Outcome != "" ||
+			data.RequestID != fixture.requestID.String() {
 			t.Fatalf("wrong-answer result = %#v", data)
 		}
 		assertCompletedJudgeState(t, pool, fixture.submissionID, fixture.matchID, "fail", uuid.Nil)
@@ -243,7 +245,8 @@ func TestJudgeServiceIntegration(t *testing.T) {
 		}
 		data := decodeResultEvent(t, payloads[0])
 		if data.SubmissionID != fixture.submissionID.String() || data.Verdict != proto.VerdictFail ||
-			data.TestsPassed != 1 || data.TotalTests != len(judgeStoreIntegrationTests()) {
+			data.TestsPassed != 1 || data.TotalTests != len(judgeStoreIntegrationTests()) ||
+			data.RequestID != fixture.requestID.String() {
 			t.Fatalf("terminal result event = %#v", data)
 		}
 

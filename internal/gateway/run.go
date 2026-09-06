@@ -12,6 +12,7 @@ import (
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	accountauth "github.com/nglong14/CodeDuel/internal/auth"
+	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 	"github.com/nglong14/CodeDuel/internal/submission"
 )
@@ -83,11 +84,14 @@ func newHandlerWithSubmission(
 ) http.Handler {
 	mux := http.NewServeMux()
 	authHandlers := newAuthHTTP(deps)
+	matchHandlers := newMatchHTTP(deps)
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(deps))
 	mux.HandleFunc("POST /api/auth/register", authHandlers.register)
 	mux.HandleFunc("POST /api/auth/login", authHandlers.login)
 	mux.HandleFunc("GET /api/me", authHandlers.me)
+	mux.HandleFunc("GET /api/me/match", matchHandlers.current)
+	mux.HandleFunc("GET /api/matches/{id}", matchHandlers.byID)
 	mux.HandleFunc("GET /ws", handleWS(ctx, deps, registry, acceptSubmission))
 	return mux
 }
@@ -111,7 +115,11 @@ func handleWS(
 		)
 		if err != nil {
 			deps.Logger.Info("unauthorized", "err", err)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			if errors.Is(err, errUnauthorized) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			} else {
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			}
 			return
 		}
 		userID := principal.User.ID
@@ -129,8 +137,7 @@ func handleWS(
 		c.acceptSubmission = acceptSubmission
 		queue := redisx.NewQueue(deps.Redis, redisx.DefaultScanLimit)
 		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
-			_, enqueueErr := queue.Enqueue(callCtx, member)
-			return enqueueErr
+			return enqueueForMatch(callCtx, deps.Postgres, queue, member)
 		}
 		c.refreshPresence = func(callCtx context.Context) error {
 			refreshed, refreshErr := deps.Redis.Expire(callCtx, c.presenceKey, presenceTTL).Result()
@@ -144,25 +151,34 @@ func handleWS(
 		}
 		if err := deps.Redis.Set(r.Context(), c.presenceKey, "1", presenceTTL).Err(); err != nil {
 			deps.Logger.Warn("initial presence failed", "user_id", userID, "err", err)
-			c.close()
+			c.closeSetupFailure()
 			return
 		}
 
-		unsubscribe, err := subscribeUser(r.Context(), deps.Redis, userID, c)
+		sub, err := subscribeUser(r.Context(), deps.Redis, userID)
 		if err != nil {
 			deps.Logger.Warn("subscribe failed", "user_id", userID, "err", err)
+			c.closeSetupFailure()
 			deletePresence(deps, c.presenceKey)
-			c.close()
 			return
 		}
 		c.onClose = func() {
-			unsubscribe()
+			_ = sub.Close()
 			deletePresence(deps, c.presenceKey)
 		}
 		if !registry.Add(c) {
 			c.cleanup()
 			return
 		}
+		ready, err := proto.Encode(proto.TypeReady, proto.ReadyData{UserID: userID.String()})
+		if err != nil {
+			deps.Logger.Warn("encode ready failed", "user_id", userID, "err", err)
+			c.closeSetupFailure()
+			c.cleanup()
+			return
+		}
+		c.Send(ready)
+		go fanout(sub.Channel(), c)
 		deps.Logger.Info("connected", "user_id", userID, "connection_id", c.connectionID)
 		registry.Serve(c)
 		deps.Logger.Info("disconnected", "user_id", userID, "connection_id", c.connectionID)

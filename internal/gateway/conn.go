@@ -37,6 +37,7 @@ type conn struct {
 	send             chan []byte
 	closed           chan struct{}
 	writeMu          sync.Mutex
+	deliveryMu       sync.Mutex
 	closeOnce        sync.Once
 	cleanupOnce      sync.Once
 	registry         *Registry
@@ -91,6 +92,19 @@ func (c *conn) close() {
 	})
 }
 
+func (c *conn) closeSetupFailure() {
+	if c.ws != nil {
+		c.writeMu.Lock()
+		_ = c.ws.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "connection setup failed"),
+			time.Now().Add(writeWait),
+		)
+		c.writeMu.Unlock()
+	}
+	c.close()
+}
+
 func (c *conn) Send(msg []byte) {
 	select {
 	case c.send <- msg:
@@ -129,14 +143,23 @@ func (c *conn) readPump() {
 		if err != nil {
 			return
 		}
-		resp, err := c.handleInbound(raw)
-		if err != nil {
+		if err := c.handleAndSend(raw); err != nil {
 			return
 		}
-		if len(resp) > 0 {
-			c.Send(resp)
-		}
 	}
+}
+
+func (c *conn) handleAndSend(raw []byte) error {
+	c.deliveryMu.Lock()
+	defer c.deliveryMu.Unlock()
+	resp, err := c.handleInbound(raw)
+	if err != nil {
+		return err
+	}
+	if len(resp) > 0 {
+		c.Send(resp)
+	}
+	return nil
 }
 
 func (c *conn) writePump() {
@@ -210,7 +233,7 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 	switch intent.typ {
 	case proto.TypeJoinQueue:
 		if c.enqueue == nil {
-			return encodeError("unable to join queue")
+			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
 		member := redisx.QueueMember{
 			UserID:      c.userID,
@@ -220,9 +243,17 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		}
 		if err := c.enqueue(c.ctx, member); err != nil {
 			c.logger.Warn("enqueue failed", "user_id", c.userID, "err", err)
-			return encodeError("unable to join queue")
+			var activeErr *alreadyInActiveMatchError
+			if errors.As(err, &activeErr) {
+				return proto.Encode(proto.TypeError, proto.ErrorData{
+					Code:    "already_in_match",
+					Message: "player already has an active match",
+					MatchID: activeErr.matchID.String(),
+				})
+			}
+			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
-		return nil, nil
+		return proto.Encode(proto.TypeQueued, proto.QueuedData{})
 	case proto.TypeSubmitCode:
 		if c.acceptSubmission == nil {
 			return encodeError("unable to accept submission")
@@ -238,9 +269,10 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		})
 		if err != nil {
 			c.logger.Warn("accept submission failed", "user_id", c.userID, "err", err)
-			return encodeSubmissionError(err)
+			return encodeSubmissionError(err, intent.submission.RequestID)
 		}
 		return proto.Encode(proto.TypeJudging, proto.JudgingData{
+			RequestID:    intent.submission.RequestID,
 			SubmissionID: submissionID.String(),
 		})
 	default:
@@ -267,19 +299,30 @@ func encodeError(message string) ([]byte, error) {
 	return proto.Encode(proto.TypeError, proto.ErrorData{Message: message})
 }
 
-func encodeSubmissionError(err error) ([]byte, error) {
+func encodeErrorCode(code, message string) ([]byte, error) {
+	return proto.Encode(proto.TypeError, proto.ErrorData{Code: code, Message: message})
+}
+
+func encodeSubmissionError(err error, requestID string) ([]byte, error) {
+	encode := func(code, message string) ([]byte, error) {
+		return proto.Encode(proto.TypeError, proto.ErrorData{
+			Code:      code,
+			Message:   message,
+			RequestID: requestID,
+		})
+	}
 	switch {
 	case errors.Is(err, submission.ErrInvalidRequest):
-		return encodeError("invalid request")
+		return encode("invalid_request", "invalid request")
 	case errors.Is(err, submission.ErrNotMatchPlayer):
-		return encodeError("not a match player")
+		return encode("not_match_player", "not a match player")
 	case errors.Is(err, submission.ErrDeadlinePassed):
-		return encodeError("deadline passed")
+		return encode("deadline_passed", "deadline passed")
 	case errors.Is(err, submission.ErrMatchNotFound), errors.Is(err, submission.ErrMatchNotActive):
-		return encodeError("match not active")
+		return encode("match_not_active", "match not active")
 	case errors.Is(err, submission.ErrIdempotencyConflict):
-		return encodeError("idempotency conflict")
+		return encode("idempotency_conflict", "idempotency conflict")
 	default:
-		return encodeError("unable to accept submission")
+		return encode("submission_unavailable", "unable to accept submission")
 	}
 }

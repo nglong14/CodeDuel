@@ -21,12 +21,13 @@ type publishedEvent struct {
 	Payload     []byte
 }
 
-func buildFailedResultEvent(submissionID, matchID, playerID uuid.UUID, totalTests int) (publishedEvent, error) {
-	if submissionID == uuid.Nil || matchID == uuid.Nil || playerID == uuid.Nil || totalTests < 0 {
+func buildFailedResultEvent(submissionID, requestID, matchID, playerID uuid.UUID, totalTests int) (publishedEvent, error) {
+	if submissionID == uuid.Nil || requestID == uuid.Nil || matchID == uuid.Nil || playerID == uuid.Nil || totalTests < 0 {
 		return publishedEvent{}, errors.New("build failed result event: invalid arguments")
 	}
 	payload, err := proto.Encode(proto.TypeResult, proto.ResultData{
 		EventID:      proto.StableEventID(eventKindInfrastructureFailed, submissionID, playerID).String(),
+		RequestID:    requestID.String(),
 		SubmissionID: submissionID.String(),
 		MatchID:      matchID.String(),
 		PlayerID:     playerID.String(),

@@ -1,3 +1,32 @@
+# Local development orchestration for the CodeDuel core.
+#
+# This file owns PostgreSQL, Redis, and the non-Judge roles (migrate, gateway,
+# match, reaper). It intentionally does NOT include the Judge: the Judge needs
+# host Docker daemon access, which is effectively host-root, and must be kept on
+# a dedicated host (see deploy/docker-compose.judge.yml and the README security
+# boundary). Until the frontend PR supplies the final application Dockerfile,
+# roles run from a pinned Go image with the source mounted read-only.
+#
+#   make up          start the complete core stack
+#   make up-infra    start only postgres and redis
+
+name: codeduel
+
+x-go-runner: &go-runner
+  image: golang:1.26.6-alpine
+  working_dir: /src
+  environment: &go-runner-env
+    GOCACHE: /cache/build
+    GOMODCACHE: /cache/mod
+    GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    POSTGRES_DSN: postgres://codeduel:codeduel@postgres:5432/codeduel?sslmode=disable
+    REDIS_ADDR: redis:6379
+  volumes:
+    - ../:/src:ro
+    - go-mod-cache:/cache/mod
+    - go-build-cache:/cache/build
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,6 +43,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - codeduel-core
 
   redis:
     image: redis:7-alpine
@@ -26,7 +57,72 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - codeduel-core
+
+  migrate:
+    <<: *go-runner
+    command: ["go", "run", "./cmd/codeduel", "--role=migrate", "--direction=up"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - codeduel-core
+
+  gateway:
+    <<: *go-runner
+    command: ["go", "run", "./cmd/codeduel", "--role=gateway"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - codeduel-core
+
+  match:
+    <<: *go-runner
+    command: ["go", "run", "./cmd/codeduel", "--role=match"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - codeduel-core
+
+  reaper:
+    <<: *go-runner
+    command: ["go", "run", "./cmd/codeduel", "--role=reaper"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - codeduel-core
+
+networks:
+  codeduel-core:
+    name: codeduel-core
 
 volumes:
   postgres_data:
   redis_data:
+  go-mod-cache:
+  go-build-cache:
