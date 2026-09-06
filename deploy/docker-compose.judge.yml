@@ -1,0 +1,53 @@
+# Standalone Judge orchestration for CodeDuel.
+#
+# The Judge executes untrusted submissions in disposable Docker sandboxes, so it
+# needs the host Docker socket and must NOT be co-located with Gateway,
+# PostgreSQL, or Redis. Keep it on a dedicated Linux host in production; this
+# file only provides separate development lifecycle semantics.
+#
+#   make sandbox-images   build the pinned sandbox images first (prerequisite)
+#   make up-judge         start the Judge on the local Docker host
+#   make logs-judge       tail Judge logs
+#   make down-judge       stop the Judge
+#
+# By default the Judge reaches the core stack through the host-published ports
+# (PostgreSQL 5433, Redis 6379) via host.docker.internal. Override
+# JUDGE_POSTGRES_DSN and JUDGE_REDIS_ADDR to point at a dedicated host.
+
+name: codeduel-judge
+
+x-judge-runner: &judge-runner
+  image: golang:1.26.6-alpine
+  working_dir: /src
+  environment: &judge-runner-env
+    GOCACHE: /cache/build
+    GOMODCACHE: /cache/mod
+    GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    POSTGRES_DSN: ${JUDGE_POSTGRES_DSN:-postgres://codeduel:codeduel@host.docker.internal:5433/codeduel?sslmode=disable}
+    REDIS_ADDR: ${JUDGE_REDIS_ADDR:-host.docker.internal:6379}
+    JUDGE_CONCURRENCY: ${JUDGE_CONCURRENCY:-2}
+    JUDGE_PYTHON_IMAGE: ${JUDGE_PYTHON_IMAGE:-codeduel/sandbox-python:3.13}
+    JUDGE_CPP_IMAGE: ${JUDGE_CPP_IMAGE:-codeduel/sandbox-cpp:gcc14}
+    JUDGE_JAVA_IMAGE: ${JUDGE_JAVA_IMAGE:-codeduel/sandbox-java:temurin21}
+  volumes:
+    - ../:/src:ro
+    - judge-mod-cache:/cache/mod
+    - judge-build-cache:/cache/build
+  restart: unless-stopped
+
+services:
+  judge:
+    <<: *judge-runner
+    command: ["go", "run", "./cmd/codeduel", "--role=judge"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../:/src:ro
+      - judge-mod-cache:/cache/mod
+      - judge-build-cache:/cache/build
+      - /var/run/docker.sock:/var/run/docker.sock
+    stop_grace_period: 60s
+
+volumes:
+  judge-mod-cache:
+  judge-build-cache:
