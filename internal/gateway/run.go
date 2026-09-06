@@ -83,11 +83,14 @@ func newHandlerWithSubmission(
 ) http.Handler {
 	mux := http.NewServeMux()
 	authHandlers := newAuthHTTP(deps)
+	matchHandlers := newMatchHTTP(deps)
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /readyz", handleReadyz(deps))
 	mux.HandleFunc("POST /api/auth/register", authHandlers.register)
 	mux.HandleFunc("POST /api/auth/login", authHandlers.login)
 	mux.HandleFunc("GET /api/me", authHandlers.me)
+	mux.HandleFunc("GET /api/me/match", matchHandlers.current)
+	mux.HandleFunc("GET /api/matches/{id}", matchHandlers.byID)
 	mux.HandleFunc("GET /ws", handleWS(ctx, deps, registry, acceptSubmission))
 	return mux
 }
@@ -111,7 +114,11 @@ func handleWS(
 		)
 		if err != nil {
 			deps.Logger.Info("unauthorized", "err", err)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			if errors.Is(err, errUnauthorized) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			} else {
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			}
 			return
 		}
 		userID := principal.User.ID

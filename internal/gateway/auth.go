@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	accountauth "github.com/nglong14/CodeDuel/internal/auth"
 )
+
+var errUnauthorized = errors.New("unauthorized")
 
 type IssuedToken struct {
 	Value     string
@@ -65,7 +68,7 @@ func MintToken(userID uuid.UUID, secret string, ttl time.Duration) (string, erro
 func AuthenticateREST(ctx context.Context, r *http.Request, secret string, users UserLookup) (Principal, error) {
 	raw, err := extractBearerToken(r)
 	if err != nil {
-		return Principal{}, err
+		return Principal{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 	}
 	return authenticateToken(ctx, raw, secret, users)
 }
@@ -73,7 +76,7 @@ func AuthenticateREST(ctx context.Context, r *http.Request, secret string, users
 func AuthenticateWebSocket(ctx context.Context, r *http.Request, secret string, users UserLookup) (Principal, error) {
 	raw, err := extractWebSocketToken(r)
 	if err != nil {
-		return Principal{}, err
+		return Principal{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 	}
 	return authenticateToken(ctx, raw, secret, users)
 }
@@ -90,13 +93,16 @@ func Authenticate(ctx context.Context, r *http.Request, secret string, db *pgxpo
 func authenticateToken(ctx context.Context, raw, secret string, users UserLookup) (Principal, error) {
 	userID, expiresAt, err := parseAccessToken(raw, secret)
 	if err != nil {
-		return Principal{}, err
+		return Principal{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 	}
 	if users == nil {
 		return Principal{}, fmt.Errorf("authenticate token: missing user lookup")
 	}
 	user, err := users.UserByID(ctx, userID)
 	if err != nil {
+		if errors.Is(err, accountauth.ErrUserNotFound) {
+			return Principal{}, fmt.Errorf("%w: user not found", errUnauthorized)
+		}
 		return Principal{}, fmt.Errorf("authenticate token: lookup user: %w", err)
 	}
 	return Principal{User: user, ExpiresAt: expiresAt}, nil
