@@ -58,6 +58,7 @@ func TestBuildResultEventsWithoutWinner(t *testing.T) {
 	data := decodeResultEvent(t, events[0].Payload)
 	want := proto.ResultData{
 		EventID:      "6e12cabe-af50-57d0-a645-3ca3780bea5d",
+		RequestID:    completed.RequestID.String(),
 		SubmissionID: completed.SubmissionID.String(),
 		MatchID:      completed.MatchID.String(),
 		PlayerID:     completed.PlayerID.String(),
@@ -97,8 +98,8 @@ func TestBuildResultEventsWithWinner(t *testing.T) {
 			t.Fatalf("result data %d = %#v", index, data)
 		}
 		if data.SubmissionID != completed.SubmissionID.String() || data.MatchID != completed.MatchID.String() ||
-			data.PlayerID != completed.PlayerID.String() || data.Verdict != proto.VerdictPass ||
-			data.TestsPassed != completed.TotalTests || data.TotalTests != completed.TotalTests {
+			data.PlayerID != completed.PlayerID.String() || data.RequestID != completed.RequestID.String() ||
+			data.Verdict != proto.VerdictPass || data.TestsPassed != completed.TotalTests || data.TotalTests != completed.TotalTests {
 			t.Fatalf("common result data %d = %#v", index, data)
 		}
 	}
@@ -127,6 +128,7 @@ func testCompletedSubmission() completedSubmission {
 		SubmissionID: uuid.MustParse("33333333-3333-3333-3333-333333333333"),
 		MatchID:      uuid.MustParse("44444444-4444-4444-4444-444444444444"),
 		PlayerID:     playerOne,
+		RequestID:    uuid.MustParse("77777777-7777-7777-7777-777777777777"),
 		Players:      [2]uuid.UUID{playerOne, playerTwo},
 		Verdict:      proto.VerdictFail,
 		FailureKind:  "wrong_answer",

@@ -299,6 +299,7 @@ func testClaimedSubmission() claimedSubmission {
 		MatchID:      completed.MatchID,
 		PlayerID:     completed.PlayerID,
 		ProblemID:    uuid.MustParse("55555555-5555-5555-5555-555555555555"),
+		RequestID:    completed.RequestID,
 		Language:     LanguagePython,
 		Source:       []byte("print('ok')"),
 		Tests: []TestCase{

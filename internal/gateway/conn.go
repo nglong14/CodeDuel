@@ -269,9 +269,10 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		})
 		if err != nil {
 			c.logger.Warn("accept submission failed", "user_id", c.userID, "err", err)
-			return encodeSubmissionError(err)
+			return encodeSubmissionError(err, intent.submission.RequestID)
 		}
 		return proto.Encode(proto.TypeJudging, proto.JudgingData{
+			RequestID:    intent.submission.RequestID,
 			SubmissionID: submissionID.String(),
 		})
 	default:
@@ -302,19 +303,26 @@ func encodeErrorCode(code, message string) ([]byte, error) {
 	return proto.Encode(proto.TypeError, proto.ErrorData{Code: code, Message: message})
 }
 
-func encodeSubmissionError(err error) ([]byte, error) {
+func encodeSubmissionError(err error, requestID string) ([]byte, error) {
+	encode := func(code, message string) ([]byte, error) {
+		return proto.Encode(proto.TypeError, proto.ErrorData{
+			Code:      code,
+			Message:   message,
+			RequestID: requestID,
+		})
+	}
 	switch {
 	case errors.Is(err, submission.ErrInvalidRequest):
-		return encodeError("invalid request")
+		return encode("invalid_request", "invalid request")
 	case errors.Is(err, submission.ErrNotMatchPlayer):
-		return encodeError("not a match player")
+		return encode("not_match_player", "not a match player")
 	case errors.Is(err, submission.ErrDeadlinePassed):
-		return encodeError("deadline passed")
+		return encode("deadline_passed", "deadline passed")
 	case errors.Is(err, submission.ErrMatchNotFound), errors.Is(err, submission.ErrMatchNotActive):
-		return encodeError("match not active")
+		return encode("match_not_active", "match not active")
 	case errors.Is(err, submission.ErrIdempotencyConflict):
-		return encodeError("idempotency conflict")
+		return encode("idempotency_conflict", "idempotency conflict")
 	default:
-		return encodeError("unable to accept submission")
+		return encode("submission_unavailable", "unable to accept submission")
 	}
 }

@@ -71,6 +71,7 @@ func buildResultEvents(completed completedSubmission) ([]resultEvent, error) {
 	for _, recipientID := range recipients {
 		data := proto.ResultData{
 			EventID:      stableResultEventID(kind, completed.SubmissionID, recipientID).String(),
+			RequestID:    completed.RequestID.String(),
 			SubmissionID: completed.SubmissionID.String(),
 			MatchID:      completed.MatchID.String(),
 			PlayerID:     completed.PlayerID.String(),

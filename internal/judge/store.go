@@ -28,6 +28,7 @@ type claimedSubmission struct {
 	MatchID      uuid.UUID
 	PlayerID     uuid.UUID
 	ProblemID    uuid.UUID
+	RequestID    uuid.UUID
 	Language     Language
 	Source       []byte
 	Tests        []TestCase
@@ -39,6 +40,7 @@ type completedSubmission struct {
 	SubmissionID uuid.UUID
 	MatchID      uuid.UUID
 	PlayerID     uuid.UUID
+	RequestID    uuid.UUID
 	Players      [2]uuid.UUID
 	Verdict      string
 	FailureKind  string
@@ -108,6 +110,7 @@ func (s *postgresStore) Claim(
 		matchID       uuid.UUID
 		playerID      uuid.UUID
 		problemID     uuid.UUID
+		requestID     uuid.UUID
 		language      string
 		code          string
 		testCasesJSON []byte
@@ -120,7 +123,7 @@ func (s *postgresStore) Claim(
 		now           time.Time
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT s.status, s.match_id, s.player_id, m.problem_id, s.language, s.code,
+		SELECT s.status, s.match_id, s.player_id, m.problem_id, s.request_id, s.language, s.code,
 		       p.test_cases, s.attempt_token, s.lease_until, s.result,
 		       s.failure_kind, s.tests_passed, m.winner_id, clock_timestamp()
 		FROM submissions s
@@ -133,6 +136,7 @@ func (s *postgresStore) Claim(
 		&matchID,
 		&playerID,
 		&problemID,
+		&requestID,
 		&language,
 		&code,
 		&testCasesJSON,
@@ -176,6 +180,7 @@ func (s *postgresStore) Claim(
 			SubmissionID: submissionID,
 			MatchID:      matchID,
 			PlayerID:     playerID,
+			RequestID:    requestID,
 			Players:      players,
 			Verdict:      *verdict,
 			TestsPassed:  testsPassed,
@@ -231,6 +236,7 @@ func (s *postgresStore) Claim(
 			MatchID:      matchID,
 			PlayerID:     playerID,
 			ProblemID:    problemID,
+			RequestID:    requestID,
 			Language:     parsedLanguage,
 			Source:       []byte(code),
 			Tests:        tests,
@@ -330,6 +336,7 @@ func (s *postgresStore) Complete(
 		SubmissionID: claimed.SubmissionID,
 		MatchID:      claimed.MatchID,
 		PlayerID:     claimed.PlayerID,
+		RequestID:    claimed.RequestID,
 		Players:      claimed.Players,
 		Verdict:      result.Verdict,
 		FailureKind:  result.FailureKind,
@@ -414,7 +421,7 @@ func loadMatchPlayers(
 
 func validClaimedSubmission(claimed claimedSubmission) bool {
 	return claimed.SubmissionID != uuid.Nil && claimed.MatchID != uuid.Nil && claimed.PlayerID != uuid.Nil &&
-		claimed.AttemptToken != uuid.Nil && len(claimed.Tests) > 0
+		claimed.RequestID != uuid.Nil && claimed.AttemptToken != uuid.Nil && len(claimed.Tests) > 0
 }
 
 func validateTerminalResult(result terminalResult, totalTests int) error {

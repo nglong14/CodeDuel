@@ -82,15 +82,19 @@ func TestHandleInboundSubmitCodeJudging(t *testing.T) {
 	if data.SubmissionID != submissionID.String() {
 		t.Fatalf("submission_id = %q, want %q", data.SubmissionID, submissionID)
 	}
+	if data.RequestID != requestID.String() {
+		t.Fatalf("request_id = %q, want %q", data.RequestID, requestID)
+	}
 	if got.PlayerID != userID || got.MatchID != matchID || got.RequestID != requestID || got.Language != "python" || got.Code != "print(1)" {
 		t.Fatalf("submission request = %#v", got)
 	}
 }
 
 func TestHandleInboundSubmitCodeMapsServiceErrors(t *testing.T) {
+	requestID := uuid.New()
 	raw, err := proto.Encode(proto.TypeSubmitCode, proto.SubmitCodeData{
 		MatchID:   uuid.NewString(),
-		RequestID: uuid.NewString(),
+		RequestID: requestID.String(),
 		Language:  "python",
 		Code:      "print(1)",
 	})
@@ -103,13 +107,13 @@ func TestHandleInboundSubmitCodeMapsServiceErrors(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"invalid request", submission.ErrInvalidRequest, "invalid request"},
-		{"not a player", submission.ErrNotMatchPlayer, "not a match player"},
-		{"deadline", submission.ErrDeadlinePassed, "deadline passed"},
-		{"not found", submission.ErrMatchNotFound, "match not active"},
-		{"inactive", submission.ErrMatchNotActive, "match not active"},
-		{"conflict", submission.ErrIdempotencyConflict, "idempotency conflict"},
-		{"database", errors.New("database unavailable"), "unable to accept submission"},
+		{"invalid request", submission.ErrInvalidRequest, "invalid_request"},
+		{"not a player", submission.ErrNotMatchPlayer, "not_match_player"},
+		{"deadline", submission.ErrDeadlinePassed, "deadline_passed"},
+		{"not found", submission.ErrMatchNotFound, "match_not_active"},
+		{"inactive", submission.ErrMatchNotActive, "match_not_active"},
+		{"conflict", submission.ErrIdempotencyConflict, "idempotency_conflict"},
+		{"database", errors.New("database unavailable"), "submission_unavailable"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -121,7 +125,17 @@ func TestHandleInboundSubmitCodeMapsServiceErrors(t *testing.T) {
 			if handleErr != nil {
 				t.Fatalf("handleInbound: %v", handleErr)
 			}
-			assertErrorMessage(t, resp, tt.want)
+			env, err := proto.Decode(resp)
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			var data proto.ErrorData
+			if err := env.DecodeData(&data); err != nil {
+				t.Fatalf("DecodeData: %v", err)
+			}
+			if data.Code != tt.want || data.RequestID != requestID.String() {
+				t.Fatalf("error = code %q request_id %q, want %q and %q", data.Code, data.RequestID, tt.want, requestID)
+			}
 		})
 	}
 }

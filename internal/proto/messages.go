@@ -73,11 +73,13 @@ type MatchStartData struct {
 }
 
 type JudgingData struct {
+	RequestID    string `json:"request_id"`
 	SubmissionID string `json:"submission_id"`
 }
 
 type ResultData struct {
 	EventID      string `json:"event_id"`
+	RequestID    string `json:"request_id"`
 	SubmissionID string `json:"submission_id"`
 	MatchID      string `json:"match_id"`
 	PlayerID     string `json:"player_id"`
@@ -98,9 +100,10 @@ type MatchEndData struct {
 }
 
 type ErrorData struct {
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message"`
-	MatchID string `json:"match_id,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Message   string `json:"message"`
+	MatchID   string `json:"match_id,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func Encode(typ string, payload any) ([]byte, error) {

@@ -11,6 +11,7 @@ import (
 type leaseAction struct {
 	Kind         string
 	SubmissionID uuid.UUID
+	RequestID    uuid.UUID
 	MatchID      uuid.UUID
 	PlayerID     uuid.UUID
 	TotalTests   int
@@ -56,12 +57,12 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 			    finished_at = clock_timestamp()
 			FROM expired e
 			WHERE s.id = e.id AND e.attempts >= $2
-			RETURNING s.id, s.match_id, s.player_id
+			RETURNING s.id, s.request_id, s.match_id, s.player_id
 		)
-		SELECT 'reset', id, NULL::uuid, NULL::uuid, 0
+		SELECT 'reset', id, NULL::uuid, NULL::uuid, NULL::uuid, 0
 		FROM reset
 		UNION ALL
-		SELECT 'poisoned', p.id, p.match_id, p.player_id, jsonb_array_length(pr.test_cases)
+		SELECT 'poisoned', p.id, p.request_id, p.match_id, p.player_id, jsonb_array_length(pr.test_cases)
 		FROM poisoned p
 		JOIN matches m ON m.id = p.match_id
 		JOIN problems pr ON pr.id = m.problem_id
@@ -73,10 +74,13 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 	var actions []leaseAction
 	for rows.Next() {
 		var action leaseAction
-		var matchID, playerID uuid.NullUUID
-		if err := rows.Scan(&action.Kind, &action.SubmissionID, &matchID, &playerID, &action.TotalTests); err != nil {
+		var requestID, matchID, playerID uuid.NullUUID
+		if err := rows.Scan(&action.Kind, &action.SubmissionID, &requestID, &matchID, &playerID, &action.TotalTests); err != nil {
 			rows.Close()
 			return fmt.Errorf("reclaim leases: scan action: %w", err)
+		}
+		if requestID.Valid {
+			action.RequestID = requestID.UUID
 		}
 		if matchID.Valid {
 			action.MatchID = matchID.UUID
@@ -103,7 +107,7 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 		case "reset":
 			reset++
 		case "poisoned":
-			event, err := buildFailedResultEvent(action.SubmissionID, action.MatchID, action.PlayerID, action.TotalTests)
+			event, err := buildFailedResultEvent(action.SubmissionID, action.RequestID, action.MatchID, action.PlayerID, action.TotalTests)
 			if err != nil {
 				return err
 			}

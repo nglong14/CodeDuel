@@ -38,7 +38,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("claim kind = %v, want %v", claim.Kind, claimAcquired)
 		}
 		if claim.Claimed.SubmissionID != fixture.submissionID || claim.Claimed.MatchID != fixture.matchID ||
-			claim.Claimed.PlayerID != fixture.players[0] || claim.Claimed.ProblemID != fixture.problemID {
+			claim.Claimed.PlayerID != fixture.players[0] || claim.Claimed.ProblemID != fixture.problemID ||
+			claim.Claimed.RequestID != fixture.requestID {
 			t.Fatalf("claimed identifiers = %#v", claim.Claimed)
 		}
 		if claim.Claimed.Language != LanguagePython || string(claim.Claimed.Source) != judgeStoreIntegrationSource ||
@@ -101,6 +102,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			SubmissionID: fixture.submissionID,
 			MatchID:      fixture.matchID,
 			PlayerID:     fixture.players[0],
+			RequestID:    fixture.requestID,
 			Players:      fixture.players,
 			Verdict:      "fail",
 			FailureKind:  "wrong_answer",
@@ -346,6 +348,7 @@ type judgeStoreIntegrationFixture struct {
 	matchID      uuid.UUID
 	problemID    uuid.UUID
 	submissionID uuid.UUID
+	requestID    uuid.UUID
 	players      [2]uuid.UUID
 }
 
@@ -357,6 +360,7 @@ func judgeStoreIntegrationFixtureForTest(
 	t.Helper()
 	ctx := context.Background()
 	fixture := judgeStoreIntegrationFixture{players: [2]uuid.UUID{uuid.New(), uuid.New()}}
+	fixture.requestID = uuid.New()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO users (id, email, display_name)
 		VALUES ($1, $3::text || '@judge.test', $3::text),
@@ -392,7 +396,7 @@ func judgeStoreIntegrationFixtureForTest(
 		INSERT INTO submissions (match_id, player_id, request_id, language, code)
 		VALUES ($1, $2, $3, 'python', $4)
 		RETURNING id
-	`, fixture.matchID, fixture.players[0], uuid.New(), judgeStoreIntegrationSource).Scan(&fixture.submissionID); err != nil {
+	`, fixture.matchID, fixture.players[0], fixture.requestID, judgeStoreIntegrationSource).Scan(&fixture.submissionID); err != nil {
 		t.Fatalf("insert fixture submission: %v", err)
 	}
 	return fixture
