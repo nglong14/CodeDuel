@@ -24,6 +24,7 @@ const (
 
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: writeWait,
+	// Keep CheckOrigin nil so Gorilla enforces its default same-origin policy.
 }
 
 func Run(ctx context.Context, deps *app.Dependencies) error {

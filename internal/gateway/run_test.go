@@ -91,3 +91,25 @@ func TestWSUnauthorized(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketUpgraderRejectsCrossOriginRequests(t *testing.T) {
+	if upgrader.CheckOrigin != nil {
+		t.Fatal("upgrader.CheckOrigin is set; nil is required for Gorilla's default same-origin policy")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://codeduel.example/ws", nil)
+	req.Header = http.Header{
+		"Connection":            []string{"Upgrade"},
+		"Upgrade":               []string{"websocket"},
+		"Sec-Websocket-Key":     []string{"dGhlIHNhbXBsZSBub25jZQ=="},
+		"Sec-Websocket-Version": []string{"13"},
+		"Origin":                []string{"https://attacker.example"},
+	}
+	rec := httptest.NewRecorder()
+	if _, err := upgrader.Upgrade(rec, req, nil); err == nil {
+		t.Fatal("Upgrade succeeded for a cross-origin request")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
