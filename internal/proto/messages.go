@@ -86,16 +86,17 @@ type JudgingData struct {
 }
 
 type ResultData struct {
-	EventID      string `json:"event_id"`
-	RequestID    string `json:"request_id"`
-	SubmissionID string `json:"submission_id"`
-	MatchID      string `json:"match_id"`
-	PlayerID     string `json:"player_id"`
-	Verdict      string `json:"verdict"`
-	TestsPassed  int    `json:"tests_passed"`
-	TotalTests   int    `json:"total_tests"`
-	WinnerID     string `json:"winner_id,omitempty"`
-	Outcome      string `json:"outcome,omitempty"`
+	EventID      string  `json:"event_id"`
+	RequestID    string  `json:"request_id"`
+	SubmissionID string  `json:"submission_id"`
+	MatchID      string  `json:"match_id"`
+	PlayerID     string  `json:"player_id"`
+	Verdict      string  `json:"verdict"`
+	TestsPassed  int     `json:"tests_passed"`
+	TotalTests   int     `json:"total_tests"`
+	WinnerID     string  `json:"winner_id,omitempty"`
+	Outcome      string  `json:"outcome,omitempty"`
+	FailureKind  *string `json:"failure_kind"`
 }
 
 type MatchEndData struct {

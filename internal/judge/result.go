@@ -57,13 +57,12 @@ func buildResultEvents(completed completedSubmission) ([]resultEvent, error) {
 		return nil, errors.New("build result events: invalid match players")
 	}
 
-	recipients := []uuid.UUID{completed.PlayerID}
+	recipients := completed.Players[:]
 	kind := resultKindSubmission
 	if completed.WinnerID != uuid.Nil {
 		if completed.WinnerID != completed.Players[0] && completed.WinnerID != completed.Players[1] {
 			return nil, errors.New("build result events: winner is not a match player")
 		}
-		recipients = completed.Players[:]
 		kind = resultKindWinner
 	}
 
@@ -78,6 +77,9 @@ func buildResultEvents(completed completedSubmission) ([]resultEvent, error) {
 			Verdict:      completed.Verdict,
 			TestsPassed:  completed.TestsPassed,
 			TotalTests:   completed.TotalTests,
+		}
+		if completed.FailureKind != "" {
+			data.FailureKind = &completed.FailureKind
 		}
 		if completed.WinnerID != uuid.Nil {
 			data.WinnerID = completed.WinnerID.String()

@@ -60,7 +60,7 @@ func TestReaperLeaseReclaimIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("attempts at the cap become failed and notify submitter", func(t *testing.T) {
+	t.Run("attempts at the cap become failed and notify both players", func(t *testing.T) {
 		published.reset()
 		fixture := reaperIntegrationFixture(t, pool, reaperFixtureOpts{
 			MatchStatus:      "active",
@@ -76,24 +76,27 @@ func TestReaperLeaseReclaimIntegration(t *testing.T) {
 		kind := "infrastructure_error"
 		assertSubmissionLifecycle(t, pool, fixture.submissionID, "completed", &failed, &kind, 3)
 		events := published.snapshot()
-		if len(events) != 1 {
-			t.Fatalf("published %d events, want 1", len(events))
+		if len(events) != 2 {
+			t.Fatalf("published %d events, want 2", len(events))
 		}
-		if events[0].channel != redisx.UserChannel(fixture.players[0]) {
-			t.Fatalf("channel = %s, want submitter", events[0].channel)
-		}
-		envelope, err := proto.Decode(events[0].payload)
-		if err != nil || envelope.Type != proto.TypeResult {
-			t.Fatalf("payload type = %v %q", err, envelope.Type)
-		}
-		var data proto.ResultData
-		if err := envelope.DecodeData(&data); err != nil {
-			t.Fatalf("DecodeData: %v", err)
-		}
-		if data.Verdict != proto.VerdictFailed || data.SubmissionID != fixture.submissionID.String() ||
-			data.RequestID != fixture.requestID.String() ||
-			data.WinnerID != "" || data.Outcome != "" || data.TestsPassed != 0 || data.TotalTests != 3 {
-			t.Fatalf("poison result = %#v", data)
+		for index, event := range events {
+			if event.channel != redisx.UserChannel(fixture.players[index]) {
+				t.Fatalf("channel %d = %s", index, event.channel)
+			}
+			envelope, err := proto.Decode(event.payload)
+			if err != nil || envelope.Type != proto.TypeResult {
+				t.Fatalf("payload type = %v %q", err, envelope.Type)
+			}
+			var data proto.ResultData
+			if err := envelope.DecodeData(&data); err != nil {
+				t.Fatalf("DecodeData: %v", err)
+			}
+			if data.Verdict != proto.VerdictFailed || data.SubmissionID != fixture.submissionID.String() ||
+				data.RequestID != fixture.requestID.String() || data.FailureKind == nil ||
+				*data.FailureKind != "infrastructure_error" || data.WinnerID != "" || data.Outcome != "" ||
+				data.TestsPassed != 0 || data.TotalTests != 3 {
+				t.Fatalf("poison result %d = %#v", index, data)
+			}
 		}
 	})
 }

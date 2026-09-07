@@ -211,6 +211,7 @@ func TestEncodeDecodeJudging(t *testing.T) {
 }
 
 func TestEncodeDecodeResult(t *testing.T) {
+	failureKind := "wrong_answer"
 	want := ResultData{
 		EventID:      "55555555-5555-5555-5555-555555555555",
 		RequestID:    "22222222-2222-2222-2222-222222222222",
@@ -222,6 +223,7 @@ func TestEncodeDecodeResult(t *testing.T) {
 		TestsPassed:  3,
 		TotalTests:   3,
 		Outcome:      "win",
+		FailureKind:  &failureKind,
 	}
 	raw, err := Encode(TypeResult, want)
 	if err != nil {
@@ -237,8 +239,23 @@ func TestEncodeDecodeResult(t *testing.T) {
 	if err := env.DecodeData(&got); err != nil {
 		t.Fatalf("DecodeData: %v", err)
 	}
+	if got.FailureKind == nil || *got.FailureKind != failureKind {
+		t.Fatalf("failure_kind = %#v, want %q", got.FailureKind, failureKind)
+	}
+	got.FailureKind = nil
+	want.FailureKind = nil
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestEncodeResultNilFailureKind(t *testing.T) {
+	raw, err := Encode(TypeResult, ResultData{})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !strings.Contains(string(raw), `"failure_kind":null`) {
+		t.Fatalf("result = %s, want failure_kind null", raw)
 	}
 }
 
