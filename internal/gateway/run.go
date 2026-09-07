@@ -139,6 +139,7 @@ func handleWS(
 		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
 			return enqueueForMatch(callCtx, deps.Postgres, queue, member)
 		}
+		c.dequeue = queue.Dequeue
 		c.refreshPresence = func(callCtx context.Context) error {
 			refreshed, refreshErr := deps.Redis.Expire(callCtx, c.presenceKey, presenceTTL).Result()
 			if refreshErr != nil {

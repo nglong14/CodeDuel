@@ -76,6 +76,35 @@ func TestQueueIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("dequeue removes only the current connection", func(t *testing.T) {
+		flushIntegrationRedis(t, rdb)
+		queue := NewQueue(rdb, DefaultScanLimit)
+		member := liveMember(t, rdb)
+		if _, err := queue.Enqueue(ctx, member); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+		old := member
+		member.PresenceKey = PresenceKey(member.UserID, uuid.New())
+		if err := rdb.Set(ctx, member.PresenceKey, "1", time.Minute).Err(); err != nil {
+			t.Fatalf("set reconnect presence: %v", err)
+		}
+		if _, err := queue.Enqueue(ctx, member); err != nil {
+			t.Fatalf("Enqueue reconnect: %v", err)
+		}
+		if removed, err := queue.Dequeue(ctx, old); err != nil || removed {
+			t.Fatalf("Dequeue old = %t, %v; want false, nil", removed, err)
+		}
+		if removed, err := queue.Dequeue(ctx, member); err != nil || !removed {
+			t.Fatalf("Dequeue current = %t, %v; want true, nil", removed, err)
+		}
+		if got := rdb.ZCard(ctx, QueueKey).Val(); got != 0 {
+			t.Fatalf("queue size = %d, want 0", got)
+		}
+		if got := rdb.HLen(ctx, MembersKey).Val(); got != 0 {
+			t.Fatalf("member mappings = %d, want 0", got)
+		}
+	})
+
 	t.Run("malformed and expired members do not block", func(t *testing.T) {
 		flushIntegrationRedis(t, rdb)
 		queue := NewQueue(rdb, DefaultScanLimit)

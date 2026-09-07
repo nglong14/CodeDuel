@@ -41,6 +41,43 @@ func TestHandleInboundJoinQueueReturnsQueued(t *testing.T) {
 	}
 }
 
+func TestHandleInboundLeaveQueueReturnsQueueLeft(t *testing.T) {
+	raw, err := proto.Encode(proto.TypeLeaveQueue, nil)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	c := newConn(userID, nil, NewRegistry())
+	var got redisx.QueueMember
+	c.dequeue = func(_ context.Context, member redisx.QueueMember) (bool, error) {
+		got = member
+		return true, nil
+	}
+	resp, err := c.handleInbound(raw)
+	if err != nil {
+		t.Fatalf("conn.handleInbound: %v", err)
+	}
+
+	env, err := proto.Decode(resp)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != proto.TypeQueueLeft {
+		t.Fatalf("type = %q, want %q", env.Type, proto.TypeQueueLeft)
+	}
+	var data proto.QueueLeftData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if !data.Removed {
+		t.Fatal("removed = false, want true")
+	}
+	if got.UserID != userID || got.PresenceKey != c.presenceKey || got.Route != redisx.UserChannel(userID) {
+		t.Fatalf("dequeued member = %#v", got)
+	}
+}
+
 func TestHandleInboundSubmitCodeJudging(t *testing.T) {
 	userID := uuid.New()
 	matchID := uuid.New()
