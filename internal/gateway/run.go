@@ -24,6 +24,7 @@ const (
 
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: writeWait,
+	CheckOrigin:      func(*http.Request) bool { return true },
 }
 
 func Run(ctx context.Context, deps *app.Dependencies) error {

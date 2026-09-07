@@ -34,3 +34,5 @@ Editor/IDE
 # .vscode/
 docs/*
 session-ses_f97d.md
+node_modules/
+

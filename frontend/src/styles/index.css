@@ -1,0 +1,263 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #000000;
+    --color-on-primary: #ffffff;
+    --color-ink: #000000;
+    --color-canvas: #ffffff;
+    --color-surface-soft: #f7f7f5;
+    --color-hairline: #e6e6e6;
+    --color-hairline-soft: #f1f1f1;
+  }
+
+  body {
+    background-color: #ffffff;
+    color: #000000;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 320;
+    line-height: 1.45;
+    letter-spacing: -0.26px;
+  }
+}
+
+/* Typography styles matching DESIGN.md */
+.font-display-xl {
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(2.75rem, 6vw, 5.375rem); /* 86px at desktop */
+  font-weight: 340;
+  line-height: 1.00;
+  letter-spacing: -1.72px;
+}
+
+.font-display-lg {
+  font-family: 'Inter', sans-serif;
+  font-size: clamp(2rem, 4.5vw, 4rem); /* 64px at desktop */
+  font-weight: 340;
+  line-height: 1.10;
+  letter-spacing: -0.96px;
+}
+
+.font-headline {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.625rem; /* 26px */
+  font-weight: 540;
+  line-height: 1.35;
+  letter-spacing: -0.26px;
+}
+
+.font-subhead {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.625rem; /* 26px */
+  font-weight: 340;
+  line-height: 1.35;
+  letter-spacing: -0.26px;
+}
+
+.font-card-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.5rem; /* 24px */
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
+.font-body-lg {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.25rem; /* 20px */
+  font-weight: 330;
+  line-height: 1.40;
+  letter-spacing: -0.14px;
+}
+
+.font-body {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.125rem; /* 18px */
+  font-weight: 320;
+  line-height: 1.45;
+  letter-spacing: -0.26px;
+}
+
+.font-body-sm {
+  font-family: 'Inter', sans-serif;
+  font-size: 1rem; /* 16px */
+  font-weight: 330;
+  line-height: 1.45;
+  letter-spacing: -0.14px;
+}
+
+.font-link-btn {
+  font-family: 'Inter', sans-serif;
+  font-size: 1.125rem; /* 18-20px */
+  font-weight: 480;
+  line-height: 1.40;
+  letter-spacing: -0.10px;
+}
+
+.font-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem; /* 14-18px */
+  font-weight: 500;
+  line-height: 1.30;
+  letter-spacing: 0.54px;
+  text-transform: uppercase;
+}
+
+.font-caption {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 400;
+  line-height: 1.00;
+  letter-spacing: 0.60px;
+  text-transform: uppercase;
+}
+
+/* Pill buttons - strictly rounded-full */
+.btn-primary {
+  background-color: #000000;
+  color: #ffffff;
+  border-radius: 9999px;
+  padding: 10px 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 480;
+  font-size: 1.0625rem;
+  line-height: 1.40;
+  letter-spacing: -0.10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  min-height: 44px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-primary:hover {
+  opacity: 0.88;
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  background-color: #ffffff;
+  color: #000000;
+  border-radius: 9999px;
+  padding: 8px 22px 10px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 480;
+  font-size: 1.0625rem;
+  line-height: 1.40;
+  letter-spacing: -0.10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #e6e6e6;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: #f7f7f5;
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+.btn-magenta-promo {
+  background-color: #ff3d8b;
+  color: #ffffff;
+  border-radius: 9999px;
+  padding: 10px 20px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 480;
+  font-size: 1rem;
+  line-height: 1.40;
+  letter-spacing: -0.10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.btn-magenta-promo:hover {
+  opacity: 0.90;
+}
+
+.btn-icon-circular {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background-color: #f7f7f5;
+  color: #000000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+  border: 1px solid #e6e6e6;
+}
+
+.btn-icon-circular:hover {
+  background-color: #ecece8;
+}
+
+.btn-icon-circular-inverse {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.btn-icon-circular-inverse:hover {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+}
+
+/* Marquee keyframes */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
