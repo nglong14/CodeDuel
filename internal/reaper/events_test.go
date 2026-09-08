@@ -8,46 +8,55 @@ import (
 	"github.com/nglong14/CodeDuel/internal/proto"
 )
 
-func TestBuildFailedResultEvent(t *testing.T) {
+func TestBuildFailedResultEvents(t *testing.T) {
 	submissionID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	requestID := uuid.MustParse("77777777-7777-7777-7777-777777777777")
 	matchID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
 	playerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	opponentID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	event, err := buildFailedResultEvent(submissionID, requestID, matchID, playerID, 3)
+	events, err := buildFailedResultEvents(submissionID, requestID, matchID, playerID, [2]uuid.UUID{playerID, opponentID}, 3)
 	if err != nil {
-		t.Fatalf("buildFailedResultEvent: %v", err)
+		t.Fatalf("buildFailedResultEvents: %v", err)
 	}
-	if event.RecipientID != playerID {
-		t.Fatalf("recipient = %s, want %s", event.RecipientID, playerID)
-	}
-
-	envelope, err := proto.Decode(event.Payload)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	if envelope.Type != proto.TypeResult {
-		t.Fatalf("type = %q, want %q", envelope.Type, proto.TypeResult)
-	}
-	var data proto.ResultData
-	if err := envelope.DecodeData(&data); err != nil {
-		t.Fatalf("DecodeData: %v", err)
-	}
-	wantID := proto.StableEventID(eventKindInfrastructureFailed, submissionID, playerID).String()
-	if data.EventID != wantID || data.RequestID != requestID.String() ||
-		data.SubmissionID != submissionID.String() ||
-		data.MatchID != matchID.String() || data.PlayerID != playerID.String() ||
-		data.Verdict != proto.VerdictFailed || data.TestsPassed != 0 || data.TotalTests != 3 ||
-		data.WinnerID != "" || data.Outcome != "" {
-		t.Fatalf("failed result = %#v", data)
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(events))
 	}
 
-	again, err := buildFailedResultEvent(submissionID, requestID, matchID, playerID, 3)
-	if err != nil {
-		t.Fatalf("buildFailedResultEvent second: %v", err)
+	for index, event := range events {
+		players := [2]uuid.UUID{playerID, opponentID}
+		if event.RecipientID != players[index] {
+			t.Fatalf("recipient %d = %s, want %s", index, event.RecipientID, players[index])
+		}
+		envelope, err := proto.Decode(event.Payload)
+		if err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if envelope.Type != proto.TypeResult {
+			t.Fatalf("type = %q, want %q", envelope.Type, proto.TypeResult)
+		}
+		var data proto.ResultData
+		if err := envelope.DecodeData(&data); err != nil {
+			t.Fatalf("DecodeData: %v", err)
+		}
+		wantID := proto.StableEventID(eventKindInfrastructureFailed, submissionID, event.RecipientID).String()
+		if data.EventID != wantID || data.RequestID != requestID.String() ||
+			data.SubmissionID != submissionID.String() || data.MatchID != matchID.String() ||
+			data.PlayerID != playerID.String() || data.Verdict != proto.VerdictFailed ||
+			data.TestsPassed != 0 || data.TotalTests != 3 || data.FailureKind == nil ||
+			*data.FailureKind != "infrastructure_error" || data.WinnerID != "" || data.Outcome != "" {
+			t.Fatalf("failed result %d = %#v", index, data)
+		}
 	}
-	if string(again.Payload) != string(event.Payload) {
-		t.Fatal("failed result event is not stable")
+
+	again, err := buildFailedResultEvents(submissionID, requestID, matchID, playerID, [2]uuid.UUID{playerID, opponentID}, 3)
+	if err != nil {
+		t.Fatalf("buildFailedResultEvents second: %v", err)
+	}
+	for index := range events {
+		if string(again[index].Payload) != string(events[index].Payload) {
+			t.Fatal("failed result event is not stable")
+		}
 	}
 }
 

@@ -18,10 +18,13 @@ var (
 	popPairSource string
 	//go:embed scripts/requeue.lua
 	requeueSource string
+	//go:embed scripts/dequeue.lua
+	dequeueSource string
 
 	enqueueScript = redis.NewScript(enqueueSource)
 	popPairScript = redis.NewScript(popPairSource)
 	requeueScript = redis.NewScript(requeueSource)
+	dequeueScript = redis.NewScript(dequeueSource)
 )
 
 type Queue struct {
@@ -76,6 +79,27 @@ func (q *Queue) Enqueue(ctx context.Context, member QueueMember) (EnqueueResult,
 		return EnqueueResult{}, fmt.Errorf("enqueue member: decode score: %w", err)
 	}
 	return EnqueueResult{Added: added, Score: score}, nil
+}
+
+func (q *Queue) Dequeue(ctx context.Context, member QueueMember) (bool, error) {
+	if q == nil || q.client == nil {
+		return false, fmt.Errorf("dequeue member: missing Redis client")
+	}
+	encoded, err := encodeMember(member)
+	if err != nil {
+		return false, fmt.Errorf("dequeue member: %w", err)
+	}
+
+	result, err := dequeueScript.Run(ctx, q.client,
+		[]string{QueueKey, MembersKey}, member.UserID.String(), encoded).Result()
+	if err != nil {
+		return false, fmt.Errorf("dequeue member: run script: %w", err)
+	}
+	removed, err := strconv.ParseInt(fmt.Sprint(result), 10, 64)
+	if err != nil {
+		return false, fmt.Errorf("dequeue member: decode result: %w", err)
+	}
+	return removed != 0, nil
 }
 
 func (q *Queue) PopPair(ctx context.Context) (*Pair, error) {

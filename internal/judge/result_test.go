@@ -51,23 +51,21 @@ func TestBuildResultEventsWithoutWinner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildResultEvents: %v", err)
 	}
-	if len(events) != 1 || events[0].RecipientID != completed.PlayerID {
-		t.Fatalf("events = %#v, want one event for %s", events, completed.PlayerID)
+	if len(events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(events))
 	}
-
-	data := decodeResultEvent(t, events[0].Payload)
-	want := proto.ResultData{
-		EventID:      "6e12cabe-af50-57d0-a645-3ca3780bea5d",
-		RequestID:    completed.RequestID.String(),
-		SubmissionID: completed.SubmissionID.String(),
-		MatchID:      completed.MatchID.String(),
-		PlayerID:     completed.PlayerID.String(),
-		Verdict:      proto.VerdictFail,
-		TestsPassed:  2,
-		TotalTests:   3,
-	}
-	if data != want {
-		t.Fatalf("result data = %#v, want %#v", data, want)
+	for index, event := range events {
+		if event.RecipientID != completed.Players[index] {
+			t.Fatalf("recipient %d = %s, want %s", index, event.RecipientID, completed.Players[index])
+		}
+		data := decodeResultEvent(t, event.Payload)
+		if data.EventID != stableResultEventID(resultKindSubmission, completed.SubmissionID, event.RecipientID).String() ||
+			data.RequestID != completed.RequestID.String() || data.SubmissionID != completed.SubmissionID.String() ||
+			data.MatchID != completed.MatchID.String() || data.PlayerID != completed.PlayerID.String() ||
+			data.Verdict != proto.VerdictFail || data.TestsPassed != 2 || data.TotalTests != 3 ||
+			data.FailureKind == nil || *data.FailureKind != "wrong_answer" || data.WinnerID != "" || data.Outcome != "" {
+			t.Fatalf("result data %d = %#v", index, data)
+		}
 	}
 }
 
@@ -75,6 +73,7 @@ func TestBuildResultEventsWithWinner(t *testing.T) {
 	completed := testCompletedSubmission()
 	completed.Verdict = proto.VerdictPass
 	completed.TestsPassed = completed.TotalTests
+	completed.FailureKind = ""
 	completed.WinnerID = completed.Players[0]
 
 	events, err := buildResultEvents(completed)
@@ -99,7 +98,8 @@ func TestBuildResultEventsWithWinner(t *testing.T) {
 		}
 		if data.SubmissionID != completed.SubmissionID.String() || data.MatchID != completed.MatchID.String() ||
 			data.PlayerID != completed.PlayerID.String() || data.RequestID != completed.RequestID.String() ||
-			data.Verdict != proto.VerdictPass || data.TestsPassed != completed.TotalTests || data.TotalTests != completed.TotalTests {
+			data.Verdict != proto.VerdictPass || data.TestsPassed != completed.TotalTests || data.TotalTests != completed.TotalTests ||
+			data.FailureKind != nil {
 			t.Fatalf("common result data %d = %#v", index, data)
 		}
 	}

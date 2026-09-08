@@ -14,6 +14,7 @@ type leaseAction struct {
 	RequestID    uuid.UUID
 	MatchID      uuid.UUID
 	PlayerID     uuid.UUID
+	OpponentID   uuid.UUID
 	TotalTests   int
 }
 
@@ -59,10 +60,12 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 			WHERE s.id = e.id AND e.attempts >= $2
 			RETURNING s.id, s.request_id, s.match_id, s.player_id
 		)
-		SELECT 'reset', id, NULL::uuid, NULL::uuid, NULL::uuid, 0
+		SELECT 'reset', id, NULL::uuid, NULL::uuid, NULL::uuid, NULL::uuid, 0
 		FROM reset
 		UNION ALL
-		SELECT 'poisoned', p.id, p.request_id, p.match_id, p.player_id, jsonb_array_length(pr.test_cases)
+		SELECT 'poisoned', p.id, p.request_id, p.match_id, p.player_id,
+		       (SELECT mp.user_id FROM match_players mp WHERE mp.match_id = p.match_id AND mp.user_id <> p.player_id),
+		       jsonb_array_length(pr.test_cases)
 		FROM poisoned p
 		JOIN matches m ON m.id = p.match_id
 		JOIN problems pr ON pr.id = m.problem_id
@@ -74,8 +77,8 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 	var actions []leaseAction
 	for rows.Next() {
 		var action leaseAction
-		var requestID, matchID, playerID uuid.NullUUID
-		if err := rows.Scan(&action.Kind, &action.SubmissionID, &requestID, &matchID, &playerID, &action.TotalTests); err != nil {
+		var requestID, matchID, playerID, opponentID uuid.NullUUID
+		if err := rows.Scan(&action.Kind, &action.SubmissionID, &requestID, &matchID, &playerID, &opponentID, &action.TotalTests); err != nil {
 			rows.Close()
 			return fmt.Errorf("reclaim leases: scan action: %w", err)
 		}
@@ -87,6 +90,9 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 		}
 		if playerID.Valid {
 			action.PlayerID = playerID.UUID
+		}
+		if opponentID.Valid {
+			action.OpponentID = opponentID.UUID
 		}
 		actions = append(actions, action)
 	}
@@ -100,24 +106,25 @@ func (s *service) reclaimLeases(ctx context.Context, conn *pgxpool.Conn) error {
 		return fmt.Errorf("reclaim leases: commit transaction: %w", err)
 	}
 
-	reset := 0
+	reset, poisoned := 0, 0
 	var events []publishedEvent
 	for _, action := range actions {
 		switch action.Kind {
 		case "reset":
 			reset++
 		case "poisoned":
-			event, err := buildFailedResultEvent(action.SubmissionID, action.RequestID, action.MatchID, action.PlayerID, action.TotalTests)
+			poisoned++
+			event, err := buildFailedResultEvents(action.SubmissionID, action.RequestID, action.MatchID, action.PlayerID, [2]uuid.UUID{action.PlayerID, action.OpponentID}, action.TotalTests)
 			if err != nil {
 				return err
 			}
-			events = append(events, event)
+			events = append(events, event...)
 		default:
 			return fmt.Errorf("reclaim leases: unknown action %q", action.Kind)
 		}
 	}
 	if reset > 0 || len(events) > 0 {
-		s.logger.Info("reclaimed expired leases", "reset", reset, "poisoned", len(events))
+		s.logger.Info("reclaimed expired leases", "reset", reset, "poisoned", poisoned)
 	}
 	return s.publishEvents(ctx, events)
 }
