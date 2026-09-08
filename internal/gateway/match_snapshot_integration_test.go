@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +68,9 @@ func TestCurrentMatchSnapshotIntegration(t *testing.T) {
 	if response.Match.Truncated {
 		t.Fatal("two submissions were reported as truncated")
 	}
-	if response.Match.ServerTime.IsZero() || response.Match.Problem.ID != problemID || response.Match.Problem.TotalTests != 3 {
+	if response.Match.ServerTime.IsZero() || response.Match.Problem.ID != problemID || response.Match.Problem.TotalTests != 3 ||
+		response.Match.Problem.Constraints != "Snapshot constraints" ||
+		!slices.Equal(response.Match.Problem.SupportedLanguages, []string{"python", "cpp", "java"}) {
 		t.Fatalf("snapshot metadata = %#v", response.Match)
 	}
 	if len(response.Match.Problem.PublicExamples) != 1 || response.Match.Problem.PublicExamples[0].Input != publicInputCanary ||
@@ -259,8 +262,8 @@ func insertSnapshotProblem(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	var problemID uuid.UUID
 	if err := pool.QueryRow(context.Background(), `
-		INSERT INTO problems (title, statement, test_cases, public_examples)
-		VALUES ('Snapshot problem', 'Public problem statement', $1::jsonb, $2::jsonb)
+		INSERT INTO problems (title, statement, constraints, test_cases, public_examples)
+		VALUES ('Snapshot problem', 'Public problem statement', 'Snapshot constraints', $1::jsonb, $2::jsonb)
 		RETURNING id
 	`, `[{"input":"`+hiddenInputCanary+`","expected":"`+hiddenExpectedCanary+`"},{"input":"2","expected":"2"},{"input":"3","expected":"3"}]`, `[{"input":"`+publicInputCanary+`","output":"`+publicOutputCanary+`"}]`).Scan(&problemID); err != nil {
 		t.Fatalf("insert snapshot problem: %v", err)

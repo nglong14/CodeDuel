@@ -17,11 +17,13 @@ const maxSnapshotSubmissions = 100
 var errMatchNotFound = errors.New("match not found")
 
 type problemSnapshot struct {
-	ID             uuid.UUID       `json:"id"`
-	Title          string          `json:"title"`
-	Statement      string          `json:"statement"`
-	PublicExamples []publicExample `json:"public_examples"`
-	TotalTests     int             `json:"total_tests"`
+	ID                 uuid.UUID       `json:"id"`
+	Title              string          `json:"title"`
+	Statement          string          `json:"statement"`
+	Constraints        string          `json:"constraints"`
+	SupportedLanguages []string        `json:"supported_languages"`
+	PublicExamples     []publicExample `json:"public_examples"`
+	TotalTests         int             `json:"total_tests"`
 }
 
 type publicExample struct {
@@ -73,7 +75,7 @@ func newMatchSnapshotService(db *pgxpool.Pool) *matchSnapshotService {
 func (s *matchSnapshotService) current(ctx context.Context, userID uuid.UUID) (*matchSnapshot, error) {
 	return s.load(ctx, userID, `
 		SELECT m.id, m.status, m.created_at, m.deadline, m.winner_id,
-		       p.id, p.title, p.statement, p.public_examples, jsonb_array_length(p.test_cases),
+		       p.id, p.title, p.statement, p.constraints, p.public_examples, jsonb_array_length(p.test_cases),
 		       clock_timestamp()
 		FROM matches m
 		JOIN match_players self ON self.match_id = m.id AND self.user_id = $1
@@ -86,7 +88,7 @@ func (s *matchSnapshotService) current(ctx context.Context, userID uuid.UUID) (*
 func (s *matchSnapshotService) byID(ctx context.Context, userID, matchID uuid.UUID) (*matchSnapshot, error) {
 	return s.load(ctx, userID, `
 		SELECT m.id, m.status, m.created_at, m.deadline, m.winner_id,
-		       p.id, p.title, p.statement, p.public_examples, jsonb_array_length(p.test_cases),
+		       p.id, p.title, p.statement, p.constraints, p.public_examples, jsonb_array_length(p.test_cases),
 		       clock_timestamp()
 		FROM matches m
 		JOIN match_players self ON self.match_id = m.id AND self.user_id = $1
@@ -114,6 +116,7 @@ func (s *matchSnapshotService) load(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	snapshot := &matchSnapshot{
+		Problem:     problemSnapshot{SupportedLanguages: []string{"python", "cpp", "java"}},
 		Players:     make([]playerSnapshot, 0, 2),
 		Submissions: make([]submissionSnapshot, 0),
 	}
@@ -127,6 +130,7 @@ func (s *matchSnapshotService) load(
 		&snapshot.Problem.ID,
 		&snapshot.Problem.Title,
 		&snapshot.Problem.Statement,
+		&snapshot.Problem.Constraints,
 		&snapshot.Problem.PublicExamples,
 		&snapshot.Problem.TotalTests,
 		&snapshot.ServerTime,
