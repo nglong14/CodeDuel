@@ -20,6 +20,8 @@ import (
 const (
 	hiddenInputCanary    = "HIDDEN_INPUT_CANARY"
 	hiddenExpectedCanary = "HIDDEN_EXPECTED_CANARY"
+	publicInputCanary    = "PUBLIC_INPUT_CANARY"
+	publicOutputCanary   = "PUBLIC_OUTPUT_CANARY"
 	callerSourceCanary   = "CALLER_SOURCE_CANARY"
 	opponentSourceCanary = "OPPONENT_SOURCE_CANARY"
 )
@@ -67,6 +69,10 @@ func TestCurrentMatchSnapshotIntegration(t *testing.T) {
 	}
 	if response.Match.ServerTime.IsZero() || response.Match.Problem.ID != problemID || response.Match.Problem.TotalTests != 3 {
 		t.Fatalf("snapshot metadata = %#v", response.Match)
+	}
+	if len(response.Match.Problem.PublicExamples) != 1 || response.Match.Problem.PublicExamples[0].Input != publicInputCanary ||
+		response.Match.Problem.PublicExamples[0].Output != publicOutputCanary {
+		t.Fatalf("public examples = %#v", response.Match.Problem.PublicExamples)
 	}
 	if len(response.Match.Players) != 2 || response.Match.Players[0].ID != players[0] ||
 		response.Match.Players[0].BestTestsPassed != 2 || response.Match.Players[1].ID != players[1] ||
@@ -253,10 +259,10 @@ func insertSnapshotProblem(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	var problemID uuid.UUID
 	if err := pool.QueryRow(context.Background(), `
-		INSERT INTO problems (title, statement, test_cases)
-		VALUES ('Snapshot problem', 'Public problem statement', $1::jsonb)
+		INSERT INTO problems (title, statement, test_cases, public_examples)
+		VALUES ('Snapshot problem', 'Public problem statement', $1::jsonb, $2::jsonb)
 		RETURNING id
-	`, `[{"input":"`+hiddenInputCanary+`","expected":"`+hiddenExpectedCanary+`"},{"input":"2","expected":"2"},{"input":"3","expected":"3"}]`).Scan(&problemID); err != nil {
+	`, `[{"input":"`+hiddenInputCanary+`","expected":"`+hiddenExpectedCanary+`"},{"input":"2","expected":"2"},{"input":"3","expected":"3"}]`, `[{"input":"`+publicInputCanary+`","output":"`+publicOutputCanary+`"}]`).Scan(&problemID); err != nil {
 		t.Fatalf("insert snapshot problem: %v", err)
 	}
 	return problemID
