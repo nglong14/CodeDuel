@@ -24,7 +24,7 @@ const (
 
 var upgrader = websocket.Upgrader{
 	HandshakeTimeout: writeWait,
-	CheckOrigin:      func(*http.Request) bool { return true },
+	// Keep CheckOrigin nil so Gorilla enforces its default same-origin policy.
 }
 
 func Run(ctx context.Context, deps *app.Dependencies) error {
@@ -140,6 +140,7 @@ func handleWS(
 		c.enqueue = func(callCtx context.Context, member redisx.QueueMember) error {
 			return enqueueForMatch(callCtx, deps.Postgres, queue, member)
 		}
+		c.dequeue = queue.Dequeue
 		c.refreshPresence = func(callCtx context.Context) error {
 			refreshed, refreshErr := deps.Redis.Expire(callCtx, c.presenceKey, presenceTTL).Result()
 			if refreshErr != nil {

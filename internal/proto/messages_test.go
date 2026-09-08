@@ -46,6 +46,25 @@ func TestEncodeJoinQueueNilPayload(t *testing.T) {
 	}
 }
 
+func TestEncodeDecodeLeaveQueue(t *testing.T) {
+	raw, err := Encode(TypeLeaveQueue, LeaveQueueData{})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != TypeLeaveQueue {
+		t.Fatalf("type = %q, want %q", env.Type, TypeLeaveQueue)
+	}
+	var data LeaveQueueData
+	if err := env.DecodeData(&data); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+}
+
 func TestEncodeDecodeReady(t *testing.T) {
 	want := ReadyData{UserID: "11111111-1111-1111-1111-111111111111"}
 	raw, err := Encode(TypeReady, want)
@@ -84,6 +103,29 @@ func TestEncodeDecodeQueued(t *testing.T) {
 	}
 	if string(env.Data) != "{}" {
 		t.Fatalf("data = %s, want {}", env.Data)
+	}
+}
+
+func TestEncodeDecodeQueueLeft(t *testing.T) {
+	want := QueueLeftData{Removed: true}
+	raw, err := Encode(TypeQueueLeft, want)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if env.Type != TypeQueueLeft {
+		t.Fatalf("type = %q, want %q", env.Type, TypeQueueLeft)
+	}
+	var got QueueLeftData
+	if err := env.DecodeData(&got); err != nil {
+		t.Fatalf("DecodeData: %v", err)
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
 
@@ -169,6 +211,7 @@ func TestEncodeDecodeJudging(t *testing.T) {
 }
 
 func TestEncodeDecodeResult(t *testing.T) {
+	failureKind := "wrong_answer"
 	want := ResultData{
 		EventID:      "55555555-5555-5555-5555-555555555555",
 		RequestID:    "22222222-2222-2222-2222-222222222222",
@@ -180,6 +223,7 @@ func TestEncodeDecodeResult(t *testing.T) {
 		TestsPassed:  3,
 		TotalTests:   3,
 		Outcome:      "win",
+		FailureKind:  &failureKind,
 	}
 	raw, err := Encode(TypeResult, want)
 	if err != nil {
@@ -195,8 +239,23 @@ func TestEncodeDecodeResult(t *testing.T) {
 	if err := env.DecodeData(&got); err != nil {
 		t.Fatalf("DecodeData: %v", err)
 	}
+	if got.FailureKind == nil || *got.FailureKind != failureKind {
+		t.Fatalf("failure_kind = %#v, want %q", got.FailureKind, failureKind)
+	}
+	got.FailureKind = nil
+	want.FailureKind = nil
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestEncodeResultNilFailureKind(t *testing.T) {
+	raw, err := Encode(TypeResult, ResultData{})
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if !strings.Contains(string(raw), `"failure_kind":null`) {
+		t.Fatalf("result = %s, want failure_kind null", raw)
 	}
 }
 

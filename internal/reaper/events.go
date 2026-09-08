@@ -21,24 +21,33 @@ type publishedEvent struct {
 	Payload     []byte
 }
 
-func buildFailedResultEvent(submissionID, requestID, matchID, playerID uuid.UUID, totalTests int) (publishedEvent, error) {
-	if submissionID == uuid.Nil || requestID == uuid.Nil || matchID == uuid.Nil || playerID == uuid.Nil || totalTests < 0 {
-		return publishedEvent{}, errors.New("build failed result event: invalid arguments")
+func buildFailedResultEvents(submissionID, requestID, matchID, playerID uuid.UUID, players [2]uuid.UUID, totalTests int) ([]publishedEvent, error) {
+	if submissionID == uuid.Nil || requestID == uuid.Nil || matchID == uuid.Nil || playerID == uuid.Nil || totalTests < 0 ||
+		players[0] == uuid.Nil || players[1] == uuid.Nil || players[0] == players[1] ||
+		(playerID != players[0] && playerID != players[1]) {
+		return nil, errors.New("build failed result events: invalid arguments")
 	}
-	payload, err := proto.Encode(proto.TypeResult, proto.ResultData{
-		EventID:      proto.StableEventID(eventKindInfrastructureFailed, submissionID, playerID).String(),
-		RequestID:    requestID.String(),
-		SubmissionID: submissionID.String(),
-		MatchID:      matchID.String(),
-		PlayerID:     playerID.String(),
-		Verdict:      proto.VerdictFailed,
-		TestsPassed:  0,
-		TotalTests:   totalTests,
-	})
-	if err != nil {
-		return publishedEvent{}, fmt.Errorf("build failed result event: %w", err)
+
+	failureKind := "infrastructure_error"
+	events := make([]publishedEvent, 0, len(players))
+	for _, recipientID := range players {
+		payload, err := proto.Encode(proto.TypeResult, proto.ResultData{
+			EventID:      proto.StableEventID(eventKindInfrastructureFailed, submissionID, recipientID).String(),
+			RequestID:    requestID.String(),
+			SubmissionID: submissionID.String(),
+			MatchID:      matchID.String(),
+			PlayerID:     playerID.String(),
+			Verdict:      proto.VerdictFailed,
+			TestsPassed:  0,
+			TotalTests:   totalTests,
+			FailureKind:  &failureKind,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build failed result event for %s: %w", recipientID, err)
+		}
+		events = append(events, publishedEvent{RecipientID: recipientID, Payload: payload})
 	}
-	return publishedEvent{RecipientID: playerID, Payload: payload}, nil
+	return events, nil
 }
 
 func buildMatchEndEvents(

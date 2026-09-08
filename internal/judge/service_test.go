@@ -55,7 +55,7 @@ func TestProcessJobClaimHandling(t *testing.T) {
 			job:          redisx.JudgeJob{EntryID: "5-0", SubmissionID: claimed.SubmissionID},
 			claim:        claimResult{Kind: claimCompleted, Completed: completed},
 			wantClaim:    1,
-			wantPublish:  1,
+			wantPublish:  2,
 			wantQueueOps: []string{"finalize:5-0"},
 		},
 		{
@@ -65,7 +65,7 @@ func TestProcessJobClaimHandling(t *testing.T) {
 			wantClaim:    1,
 			wantExecute:  1,
 			wantComplete: 1,
-			wantPublish:  1,
+			wantPublish:  2,
 			wantQueueOps: []string{"finalize:6-0"},
 		},
 	}

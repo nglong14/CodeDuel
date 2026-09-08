@@ -44,6 +44,7 @@ type conn struct {
 	registered       bool
 	logger           *slog.Logger
 	enqueue          func(context.Context, redisx.QueueMember) error
+	dequeue          func(context.Context, redisx.QueueMember) (bool, error)
 	acceptSubmission func(context.Context, submission.Request) (uuid.UUID, error)
 	refreshPresence  func(context.Context) error
 	onClose          func()
@@ -213,6 +214,11 @@ func decodeInbound(raw []byte) (inboundIntent, string) {
 			return inboundIntent{}, "invalid join_queue"
 		}
 		return inboundIntent{typ: proto.TypeJoinQueue}, ""
+	case proto.TypeLeaveQueue:
+		if err := decodeEmptyData(env.Data); err != nil {
+			return inboundIntent{}, "invalid leave_queue"
+		}
+		return inboundIntent{typ: proto.TypeLeaveQueue}, ""
 	case proto.TypeSubmitCode:
 		data, err := proto.DecodeSubmitCodeData(env.Data)
 		if err != nil {
@@ -235,12 +241,7 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		if c.enqueue == nil {
 			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
-		member := redisx.QueueMember{
-			UserID:      c.userID,
-			PresenceKey: c.presenceKey,
-			Route:       c.route,
-			Rating:      0,
-		}
+		member := c.queueMember()
 		if err := c.enqueue(c.ctx, member); err != nil {
 			c.logger.Warn("enqueue failed", "user_id", c.userID, "err", err)
 			var activeErr *alreadyInActiveMatchError
@@ -254,6 +255,16 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 			return encodeErrorCode("queue_unavailable", "unable to join queue")
 		}
 		return proto.Encode(proto.TypeQueued, proto.QueuedData{})
+	case proto.TypeLeaveQueue:
+		if c.dequeue == nil {
+			return encodeErrorCode("queue_unavailable", "unable to leave queue")
+		}
+		removed, err := c.dequeue(c.ctx, c.queueMember())
+		if err != nil {
+			c.logger.Warn("dequeue failed", "user_id", c.userID, "err", err)
+			return encodeErrorCode("queue_unavailable", "unable to leave queue")
+		}
+		return proto.Encode(proto.TypeQueueLeft, proto.QueueLeftData{Removed: removed})
 	case proto.TypeSubmitCode:
 		if c.acceptSubmission == nil {
 			return encodeError("unable to accept submission")
@@ -277,6 +288,14 @@ func (c *conn) handleInbound(raw []byte) ([]byte, error) {
 		})
 	default:
 		return encodeError("unknown message type")
+	}
+}
+
+func (c *conn) queueMember() redisx.QueueMember {
+	return redisx.QueueMember{
+		UserID:      c.userID,
+		PresenceKey: c.presenceKey,
+		Route:       c.route,
 	}
 }
 
