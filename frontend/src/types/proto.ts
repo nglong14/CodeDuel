@@ -7,6 +7,8 @@ export interface Envelope<T = unknown> {
 
 export interface JoinQueueData {}
 
+export interface LeaveQueueData {}
+
 export interface SubmitCodeData {
   match_id: string;
   request_id: string;
@@ -19,6 +21,10 @@ export interface ReadyData {
 }
 
 export interface QueuedData {}
+
+export interface QueueLeftData {
+  removed: boolean;
+}
 
 export interface MatchStartData {
   match_id: string;
@@ -42,6 +48,7 @@ export interface ResultData {
   total_tests: number;
   winner_id?: string;
   outcome?: 'win' | 'loss' | 'draw';
+  failure_kind?: 'wrong_answer' | 'compile_error' | 'runtime_error' | 'output_limit' | 'infrastructure_error' | null;
 }
 
 export interface MatchEndData {

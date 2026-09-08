@@ -29,6 +29,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [token]);
 
+  useEffect(() => {
+    const clearSession = () => {
+      api.setToken(null);
+      setToken(null);
+      setUser(null);
+    };
+    api.setOnUnauthorized(clearSession);
+    const unsubscribe = wsClient.on('auth_expired', clearSession);
+    return () => {
+      api.setOnUnauthorized(null);
+      unsubscribe();
+    };
+  }, []);
+
   // Load current user profile on mount
   useEffect(() => {
     async function loadUser() {

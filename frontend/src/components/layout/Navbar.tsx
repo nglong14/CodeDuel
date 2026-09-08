@@ -16,7 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
 }) => {
   const { user, logout, quickLoginDemo } = useAuth();
-  const { status, isQueued, activeMatchId } = useWS();
+  const { status, isSearching, activeMatchId } = useWS();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
 
@@ -84,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               Arena
-              {isQueued && (
+              {isSearching && (
                 <span className="w-2 h-2 rounded-full bg-accent-magenta animate-ping" />
               )}
               {activeMatchId && (
@@ -92,16 +92,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ACTIVE
                 </span>
               )}
-            </button>
-            <button
-              onClick={() => onNavigate('architecture')}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                currentView === 'architecture'
-                  ? 'bg-surface-soft text-ink font-semibold'
-                  : 'text-ink/80 hover:text-ink hover:bg-surface-soft/60'
-              }`}
-            >
-              Architecture
             </button>
           </nav>
         </div>
@@ -238,20 +228,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="w-full text-left px-3 py-2 rounded-lg text-base font-medium hover:bg-surface-soft flex items-center justify-between"
           >
             <span>Duel Arena</span>
-            {isQueued && (
+            {isSearching && (
               <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-accent-magenta text-white">
                 SEARCHING
               </span>
             )}
-          </button>
-          <button
-            onClick={() => {
-              onNavigate('architecture');
-              setMobileMenuOpen(false);
-            }}
-            className="w-full text-left px-3 py-2 rounded-lg text-base font-medium hover:bg-surface-soft"
-          >
-            Architecture
           </button>
           <div className="pt-2 border-t border-hairline flex items-center justify-between">
             <span className="text-xs font-mono uppercase tracking-caption text-neutral-500">

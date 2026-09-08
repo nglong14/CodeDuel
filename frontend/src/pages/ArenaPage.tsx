@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useWS } from '../context/WebSocketContext';
 import { api } from '../services/api';
@@ -28,6 +28,7 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
     latestResult,
     latestMatchEnd,
     latestError,
+    status,
     clearMatchState,
   } = useWS();
 
@@ -37,7 +38,13 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
   const [activeTab, setActiveTab] = useState<'problem' | 'submissions'>('problem');
   const [selectedLanguage, setSelectedLanguage] = useState<SupportedLanguage>('python');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const submittedLanguages = useRef(new Map<string, SupportedLanguage>());
+  const processedJudging = useRef(new Set<string>());
+  const processedResults = useRef(new Set<string>());
+  const processedMatchEnds = useRef(new Set<string>());
 
   // Load match snapshot from database
   const loadMatch = useCallback(async () => {
@@ -70,15 +77,24 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
     loadMatch();
   }, [loadMatch]);
 
+  useEffect(() => {
+    if (status === 'connected') {
+      loadMatch();
+    }
+  }, [loadMatch, status]);
+
   // Handle WebSocket judging event
   useEffect(() => {
-    if (latestJudging && match && user) {
+    if (latestJudging && match && submittedLanguages.current.has(latestJudging.request_id)) {
+      if (processedJudging.current.has(latestJudging.request_id)) return;
+      processedJudging.current.add(latestJudging.request_id);
       setIsSubmitting(false);
+      setPendingRequestId((requestId) => requestId === latestJudging.request_id ? null : requestId);
       // Append or update pending submission in list
       const newSub: SubmissionSnapshot = {
         id: latestJudging.submission_id,
         request_id: latestJudging.request_id,
-        language: selectedLanguage,
+        language: submittedLanguages.current.get(latestJudging.request_id)!,
         status: 'pending',
         verdict: null,
         failure_kind: null,
@@ -100,12 +116,15 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
       // Switch to submissions tab to view live judging
       setActiveTab('submissions');
     }
-  }, [latestJudging, match, user, selectedLanguage]);
+  }, [latestJudging, match]);
 
   // Handle WebSocket result event
   useEffect(() => {
-    if (latestResult && match) {
-      setIsSubmitting(false);
+    if (latestResult && match && latestResult.match_id === match.id) {
+      if (processedResults.current.has(latestResult.event_id)) return;
+      processedResults.current.add(latestResult.event_id);
+      setIsSubmitting((submitting) => pendingRequestId === latestResult.request_id ? false : submitting);
+      setPendingRequestId((requestId) => requestId === latestResult.request_id ? null : requestId);
       setMatch((prev) => {
         if (!prev) return prev;
         // Update submission verdict
@@ -115,6 +134,7 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
               ...sub,
               status: 'completed' as const,
               verdict: latestResult.verdict,
+              failure_kind: latestResult.failure_kind ?? sub.failure_kind,
               tests_passed: latestResult.tests_passed,
               finished_at: new Date().toISOString(),
             };
@@ -149,11 +169,13 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
         setIsModalOpen(true);
       }
     }
-  }, [latestResult, match]);
+  }, [latestResult, match, pendingRequestId]);
 
   // Handle WebSocket match_end event
   useEffect(() => {
-    if (latestMatchEnd && match) {
+    if (latestMatchEnd && match && latestMatchEnd.match_id === match.id) {
+      if (processedMatchEnds.current.has(latestMatchEnd.event_id)) return;
+      processedMatchEnds.current.add(latestMatchEnd.event_id);
       setMatch((prev) => {
         if (!prev) return prev;
         return {
@@ -167,11 +189,24 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
     }
   }, [latestMatchEnd, match]);
 
+  useEffect(() => {
+    if (!latestError || latestError.request_id !== pendingRequestId) return;
+    setIsSubmitting(false);
+    setPendingRequestId(null);
+    setSubmissionError(latestError.message);
+    if (latestError.code === 'deadline_passed' || latestError.code === 'match_not_active') {
+      loadMatch();
+    }
+  }, [latestError, loadMatch, pendingRequestId]);
+
   const handleSubmitCode = (code: string) => {
     if (!match || match.status === 'finished') return;
-    setIsSubmitting(true);
+    setSubmissionError(null);
     try {
-      submitCode(match.id, selectedLanguage, code);
+      const requestId = submitCode(match.id, selectedLanguage, code);
+      submittedLanguages.current.set(requestId, selectedLanguage);
+      setPendingRequestId(requestId);
+      setIsSubmitting(true);
     } catch (err: unknown) {
       setIsSubmitting(false);
       console.error('Submit code failed:', err);
@@ -183,7 +218,7 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
       <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-4">
         <Loader2 className="w-8 h-8 text-ink animate-spin" />
         <p className="font-mono text-xs uppercase tracking-caption text-neutral-500">
-          Loading duel state & sandbox...
+          Loading duel state...
         </p>
       </div>
     );
@@ -277,6 +312,12 @@ export const ArenaPage: React.FC<ArenaPageProps> = ({
 
         {/* Right Column: Code Editor */}
         <div className="lg:col-span-7 h-[650px] pt-11 lg:pt-0">
+          {submissionError && (
+            <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-300 bg-block-pink px-3 py-2 text-xs font-mono text-red-900">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {submissionError}
+            </div>
+          )}
           <CodeEditor
             language={selectedLanguage}
             onLanguageChange={setSelectedLanguage}

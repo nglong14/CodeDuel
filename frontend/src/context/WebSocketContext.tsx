@@ -5,6 +5,7 @@ import {
   JudgingData,
   MatchEndData,
   MatchStartData,
+  QueueLeftData,
   QueuedData,
   ResultData,
   SupportedLanguage,
@@ -13,6 +14,7 @@ import {
 interface WebSocketContextType {
   status: WSConnectionStatus;
   isQueued: boolean;
+  isSearching: boolean;
   isWaitingModalOpen: boolean;
   activeMatchId: string | null;
   latestMatchStart: MatchStartData | null;
@@ -34,6 +36,7 @@ const WebSocketContext = createContext<WebSocketContextType | undefined>(undefin
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [status, setStatus] = useState<WSConnectionStatus>(wsClient.getStatus());
   const [isQueued, setIsQueued] = useState(false);
+  const [queueRequested, setQueueRequested] = useState(false);
   const [isWaitingModalOpen, setIsWaitingModalOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [latestMatchStart, setLatestMatchStart] = useState<MatchStartData | null>(null);
@@ -55,8 +58,14 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setLatestError(null);
     });
 
+    const unsubQueueLeft = wsClient.on<QueueLeftData>('queue_left', () => {
+      setIsQueued(false);
+      setLatestError(null);
+    });
+
     const unsubMatchStart = wsClient.on<MatchStartData>('match_start', (data) => {
       setIsQueued(false);
+      setQueueRequested(false);
       setIsWaitingModalOpen(false);
       setActiveMatchId(data.match_id);
       setLatestMatchStart(data);
@@ -82,12 +91,14 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setLatestError(data);
       if (data.code === 'queue_unavailable' || data.code === 'already_in_match') {
         setIsQueued(false);
+        setQueueRequested(false);
       }
     });
 
     return () => {
       unsubStatus();
       unsubQueued();
+      unsubQueueLeft();
       unsubMatchStart();
       unsubJudging();
       unsubResult();
@@ -96,15 +107,22 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, []);
 
+  useEffect(() => {
+    if (queueRequested && status === 'connected') {
+      try {
+        wsClient.joinQueue();
+      } catch (err) {
+        setQueueRequested(false);
+        setIsWaitingModalOpen(false);
+        setLatestError({ message: err instanceof Error ? err.message : 'Unable to join queue.' });
+      }
+    }
+  }, [queueRequested, status]);
+
   const joinQueue = () => {
     setLatestError(null);
-    setIsQueued(true);
+    setQueueRequested(true);
     setIsWaitingModalOpen(true);
-    try {
-      wsClient.joinQueue();
-    } catch (err) {
-      console.warn('joinQueue warning:', err);
-    }
   };
 
   const startMatchmaking = () => {
@@ -112,8 +130,15 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const cancelMatchmaking = () => {
-    setIsQueued(false);
+    setQueueRequested(false);
     setIsWaitingModalOpen(false);
+    if (status === 'connected') {
+      try {
+        wsClient.leaveQueue();
+      } catch (err) {
+        setLatestError({ message: err instanceof Error ? err.message : 'Unable to leave queue.' });
+      }
+    }
   };
 
   const submitCode = (matchId: string, language: SupportedLanguage, code: string) => {
@@ -130,8 +155,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const clearQueueState = () => {
-    setIsQueued(false);
-    setIsWaitingModalOpen(false);
+    cancelMatchmaking();
   };
 
   return (
@@ -139,6 +163,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       value={{
         status,
         isQueued,
+        isSearching: queueRequested || isQueued,
         isWaitingModalOpen,
         activeMatchId,
         latestMatchStart,

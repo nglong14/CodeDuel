@@ -92,6 +92,7 @@ class WebSocketClient {
         if (event.code === 4401 || event.code === 1008) {
           console.warn('[CodeDuel WS] Server closed with policy/auth error:', event.reason);
           this.shouldReconnect = false;
+          this.dispatch('auth_expired', undefined, { type: 'auth_expired' });
           return;
         }
 
@@ -138,6 +139,9 @@ class WebSocketClient {
   }
 
   send<T>(type: string, data?: T) {
+    if (this.token && !this.shouldReconnect) {
+      throw new Error('WebSocket authentication expired');
+    }
     const envelope: Envelope<T> = { type, data };
     const serialized = JSON.stringify(envelope);
 
@@ -154,6 +158,10 @@ class WebSocketClient {
 
   joinQueue() {
     this.send('join_queue', {});
+  }
+
+  leaveQueue() {
+    this.send('leave_queue', {});
   }
 
   submitCode(matchId: string, language: SupportedLanguage, code: string): string {

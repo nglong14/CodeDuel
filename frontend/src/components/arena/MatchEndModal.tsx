@@ -59,7 +59,7 @@ export const MatchEndModal: React.FC<MatchEndModalProps> = ({
               VICTORY!
             </h2>
             <p className="font-sans text-sm text-neutral-700 max-w-sm mx-auto">
-              You submitted the first correct full-pass solution! The Postgres conditional winner claim locked in your victory.
+              You submitted the first correct full-pass solution and claimed the victory.
             </p>
           </div>
         )}

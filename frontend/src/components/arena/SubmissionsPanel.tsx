@@ -19,7 +19,7 @@ export const SubmissionsPanel: React.FC<SubmissionsPanelProps> = ({
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          Judging Sandbox...
+          Evaluating...
         </span>
       );
     }
@@ -62,13 +62,13 @@ export const SubmissionsPanel: React.FC<SubmissionsPanelProps> = ({
       case 'wrong_answer':
         return 'Wrong Answer: Output did not match expected solution.';
       case 'compile_error':
-        return 'Compilation Error: Failed to compile in runner sandbox.';
+        return 'Compilation Error: Your code could not be compiled.';
       case 'runtime_error':
         return 'Runtime Exception / Non-zero exit code.';
       case 'output_limit':
         return 'Output limit exceeded (too much stdout produced).';
       case 'infrastructure_error':
-        return 'Infrastructure / Sandbox execution fault.';
+        return 'Evaluation error. Please try again.';
       default:
         return null;
     }
@@ -98,7 +98,7 @@ export const SubmissionsPanel: React.FC<SubmissionsPanelProps> = ({
               No submissions yet
             </p>
             <p className="font-sans text-xs text-neutral-500 mt-1 max-w-xs">
-              Write your solution and press "Submit Solution" (or ⌘/Ctrl+Enter) to evaluate in the Docker sandbox.
+              Write your solution and press "Submit Solution" (or ⌘/Ctrl+Enter) to evaluate it.
             </p>
           </div>
         ) : (

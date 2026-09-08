@@ -16,7 +16,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   onMatchFound,
 }) => {
   const { user } = useAuth();
-  const { isQueued, latestMatchStart, latestError, clearQueueState } = useWS();
+  const { isSearching, latestMatchStart, latestError, cancelMatchmaking } = useWS();
   const [elapsed, setElapsed] = useState(0);
   const [matchFoundAnim, setMatchFoundAnim] = useState(false);
 
@@ -57,7 +57,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   };
 
   const handleCancel = () => {
-    clearQueueState();
+    cancelMatchmaking();
     onClose();
   };
 
@@ -137,7 +137,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
                     {formatElapsed(elapsed)}
                   </div>
                   <p className="font-sans text-xs text-neutral-700 max-w-sm mx-auto pt-1">
-                    Waiting in Redis FIFO pool. The Lua <code className="bg-canvas/70 px-1 py-0.5 rounded font-mono text-[11px]">pop_pair</code> script will atomically pair you with the next available player.
+                    We will pair you with the next available player and open the arena automatically.
                   </p>
                 </div>
               </div>
@@ -150,13 +150,13 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
                   </div>
                   <div className="font-sans">
                     <span className="font-semibold text-ink block">{user?.display_name}</span>
-                    <span className="text-[11px] text-neutral-500 font-mono">Status: Ready in Queue</span>
+                    <span className="text-[11px] text-neutral-500 font-mono">Status: Looking for a match</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 text-semantic-success font-semibold">
                   <span className="w-2 h-2 rounded-full bg-semantic-success animate-pulse" />
-                  <span>Enqueued</span>
+                   <span>{isSearching ? 'Searching' : 'Leaving queue'}</span>
                 </div>
               </div>
 

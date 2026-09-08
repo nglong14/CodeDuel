@@ -52,7 +52,7 @@ export const DualPlaySimulator: React.FC = () => {
             Method 1: Two Browser Tabs
           </div>
           <p className="font-sans text-xs text-neutral-600 leading-relaxed">
-            Open CodeDuel in a new incognito tab or separate window. Sign in as <strong>Player 2 (Bob)</strong>, then hit "Find a 1v1 Match" on both tabs to watch the pair match instantly!
+            Open CodeDuel in a new tab. Sign in as <strong>Player 2 (Bob)</strong>, then hit "Find a 1v1 Match" on both tabs to watch the pair match instantly!
           </p>
           <div className="pt-1 flex gap-2">
             <Button

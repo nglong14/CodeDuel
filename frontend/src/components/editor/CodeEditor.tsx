@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Play, Code2, RotateCcw, AlertTriangle } from 'lucide-react';
 import { SupportedLanguage } from '../../types/proto';
 import { Button } from '../common/Button';
@@ -68,7 +68,7 @@ int main() {
 `,
   java: `import java.util.*;
 
-public class Solution {
+public class Main {
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
         if (!scanner.hasNextInt()) return;
@@ -101,25 +101,27 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   isSubmitting = false,
   disabled = false,
 }) => {
-  const [code, setCode] = useState<string>(STARTER_CODE[language]);
+  const [drafts, setDrafts] = useState<Record<SupportedLanguage, string>>(() => ({ ...STARTER_CODE }));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
 
-  // Switch starter template if empty or unmodified
-  useEffect(() => {
-    setCode(STARTER_CODE[language]);
-  }, [language]);
+  const code = drafts[language];
 
   const lineCount = code.split('\n').length;
   const lineNumbers = Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1);
   const byteLength = new Blob([code]).size;
   const maxBytes = 64 * 1024; // 64KB max backend limit
+  const canSubmit = !disabled && !isSubmitting && byteLength <= maxBytes && Boolean(code.trim());
+
+  const setCode = (nextCode: string) => {
+    setDrafts((current) => ({ ...current, [language]: nextCode }));
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Cmd+Enter or Ctrl+Enter to submit
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      if (!disabled && !isSubmitting && code.trim()) {
+      if (canSubmit) {
         onSubmit(code);
       }
       return;
@@ -255,11 +257,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           variant="primary"
           onClick={() => onSubmit(code)}
           isLoading={isSubmitting}
-          disabled={disabled || byteLength > maxBytes || !code.trim()}
+          disabled={!canSubmit}
           icon={<Play className="w-4 h-4 fill-current" />}
           className="px-6 py-2.5 text-sm"
         >
-          {isSubmitting ? 'Evaluating Sandbox...' : 'Submit Solution'}
+          {isSubmitting ? 'Evaluating...' : 'Submit Solution'}
         </Button>
       </div>
     </div>

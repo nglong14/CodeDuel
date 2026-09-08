@@ -18,16 +18,9 @@ export const LobbyPage: React.FC<LobbyPageProps> = ({
   onEnterMatch,
 }) => {
   const { user } = useAuth();
-  const { activeMatchId, latestMatchStart } = useWS();
+  const { activeMatchId, latestMatchStart, status } = useWS();
   const [currentMatch, setCurrentMatch] = useState<MatchSnapshot | null>(null);
   const [loadingMatch, setLoadingMatch] = useState<boolean>(false);
-
-  // If match_start received from WebSocket, transition immediately!
-  useEffect(() => {
-    if (latestMatchStart) {
-      onEnterMatch(latestMatchStart.match_id);
-    }
-  }, [latestMatchStart, onEnterMatch]);
 
   // Check if current user has an active match in the database
   useEffect(() => {
@@ -44,8 +37,10 @@ export const LobbyPage: React.FC<LobbyPageProps> = ({
       }
     }
 
-    checkCurrentMatch();
-  }, [user]);
+    if (status === 'connected') {
+      checkCurrentMatch();
+    }
+  }, [status, user]);
 
   const targetMatchId = latestMatchStart?.match_id || activeMatchId || currentMatch?.id;
 

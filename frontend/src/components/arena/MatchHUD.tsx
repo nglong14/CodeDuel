@@ -10,11 +10,13 @@ interface MatchHUDProps {
 export const MatchHUD: React.FC<MatchHUDProps> = ({ match, currentUserId }) => {
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
 
-  // Compute countdown timer accurately from server deadline
+  // Anchor the countdown to the server clock captured in the match snapshot.
   useEffect(() => {
+    const serverTimeMs = new Date(match.server_time).getTime();
+    const localStartedAt = Date.now();
     const calculateTime = () => {
       const deadlineMs = new Date(match.deadline).getTime();
-      const nowMs = Date.now();
+      const nowMs = serverTimeMs + Date.now() - localStartedAt;
       const diffSec = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
       setSecondsRemaining(diffSec);
     };
@@ -22,7 +24,7 @@ export const MatchHUD: React.FC<MatchHUDProps> = ({ match, currentUserId }) => {
     calculateTime();
     const timer = setInterval(calculateTime, 1000);
     return () => clearInterval(timer);
-  }, [match.deadline]);
+  }, [match.deadline, match.server_time]);
 
   const formatTime = (totalSec: number) => {
     const mins = Math.floor(totalSec / 60);

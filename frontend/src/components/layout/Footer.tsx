@@ -1,5 +1,5 @@
 import React from 'react';
-import { Swords, Github } from 'lucide-react';
+import { Swords } from 'lucide-react';
 
 export const Footer: React.FC = () => {
   return (
@@ -17,56 +17,51 @@ export const Footer: React.FC = () => {
               </span>
             </div>
             <p className="font-sans text-sm text-neutral-600 max-w-sm font-normal leading-relaxed">
-              A high-concurrency, 1v1 competitive coding engine powered by Go, Redis Streams,
-              PostgreSQL conditional winner updates, and untrusted Docker sandboxes.
+              Fast, focused 1v1 coding duels for developers who want to test their problem-solving skills.
             </p>
             <div className="pt-2">
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface-soft border border-hairline text-xs font-mono text-neutral-700">
                 <span className="w-2 h-2 rounded-full bg-semantic-success" />
-                Go 1.26 • Redis 7 • Postgres 16
+                1V1 • LIVE • COMPETITIVE
               </span>
             </div>
           </div>
 
-          {/* Engine Column */}
+          {/* Duel Column */}
           <div>
             <div className="font-mono text-xs uppercase tracking-caption font-semibold text-neutral-900 mb-4">
-              Core Engine
+              Duel Basics
             </div>
             <ul className="space-y-2.5 text-sm font-sans text-neutral-600">
-              <li>API Gateway (WS Hub)</li>
-              <li>Match Service (FIFO Pop)</li>
-              <li>Judge Worker (Streams)</li>
-              <li>Reaper & Sweeper</li>
-              <li>Docker Sandbox Runner</li>
+              <li>One shared challenge</li>
+              <li>Ten-minute countdown</li>
+              <li>Live submissions</li>
+              <li>First full pass wins</li>
             </ul>
           </div>
 
           {/* Supported Languages */}
           <div>
             <div className="font-mono text-xs uppercase tracking-caption font-semibold text-neutral-900 mb-4">
-              Sandbox Runtimes
+              Languages
             </div>
             <ul className="space-y-2.5 text-sm font-sans text-neutral-600">
-              <li>Python 3.13 (Isolated)</li>
-              <li>C++ GCC 14 (Seccomp)</li>
-              <li>Java 21 (Temurin)</li>
-              <li>Read-only RootFS</li>
-              <li>Strict PIDs & CPU Caps</li>
+              <li>Python</li>
+              <li>C++</li>
+              <li>Java</li>
             </ul>
           </div>
 
-          {/* Docs Column */}
+          {/* Play Column */}
           <div>
             <div className="font-mono text-xs uppercase tracking-caption font-semibold text-neutral-900 mb-4">
-              Architecture
+              Ready to Duel?
             </div>
             <ul className="space-y-2.5 text-sm font-sans text-neutral-600">
-              <li>Advisory Locks</li>
-              <li>Lua Pop-Pair Script</li>
-              <li>Idempotent Upserts</li>
-              <li>PEL Auto-Reclaim</li>
-              <li>Deterministic UUIDv5</li>
+              <li>Find a match</li>
+              <li>Write your solution</li>
+              <li>Watch your progress</li>
+              <li>Claim the win</li>
             </ul>
           </div>
         </div>

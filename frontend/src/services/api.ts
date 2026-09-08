@@ -11,22 +11,27 @@ const API_BASE = ''; // Same-origin via Vite proxy or direct
 
 class ApiClient {
   private token: string | null = null;
+  private onUnauthorized: (() => void) | null = null;
 
   constructor() {
-    this.token = localStorage.getItem('codeduel_token');
+    this.token = sessionStorage.getItem('codeduel_token');
   }
 
   setToken(token: string | null) {
     this.token = token;
     if (token) {
-      localStorage.setItem('codeduel_token', token);
+      sessionStorage.setItem('codeduel_token', token);
     } else {
-      localStorage.removeItem('codeduel_token');
+      sessionStorage.removeItem('codeduel_token');
     }
   }
 
   getToken(): string | null {
     return this.token;
+  }
+
+  setOnUnauthorized(handler: (() => void) | null) {
+    this.onUnauthorized = handler;
   }
 
   private async request<T>(
@@ -57,6 +62,9 @@ class ApiClient {
       const error = new Error(message) as Error & { code?: string; status?: number };
       error.code = code;
       error.status = response.status;
+      if (response.status === 401) {
+        this.onUnauthorized?.();
+      }
       throw error;
     }
 

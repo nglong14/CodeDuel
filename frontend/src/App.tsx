@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider, useWS } from './context/WebSocketContext';
 import { Navbar } from './components/layout/Navbar';
@@ -9,14 +9,14 @@ import { MatchmakingModal } from './components/lobby/MatchmakingModal';
 import { LandingPage } from './pages/LandingPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { ArenaPage } from './pages/ArenaPage';
-import { ArchitecturePage } from './pages/ArchitecturePage';
 
 const AppContent: React.FC = () => {
   const { user, quickLoginDemo } = useAuth();
-  const { latestMatchStart, isWaitingModalOpen, setIsWaitingModalOpen, startMatchmaking } = useWS();
+  const { latestMatchStart, isWaitingModalOpen, setIsWaitingModalOpen, startMatchmaking, clearMatchState, clearQueueState } = useWS();
   const [currentView, setCurrentView] = useState<string>('landing');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<string | undefined>(undefined);
+  const previousUserId = useRef<string | null>(null);
 
   // Check URL parameters on initial load
   useEffect(() => {
@@ -45,6 +45,16 @@ const AppContent: React.FC = () => {
       setCurrentView('arena');
     }
   }, [latestMatchStart]);
+
+  useEffect(() => {
+    if (previousUserId.current && previousUserId.current !== user?.id) {
+      clearMatchState();
+      clearQueueState();
+      setSelectedMatchId(undefined);
+      setCurrentView('lobby');
+    }
+    previousUserId.current = user?.id ?? null;
+  }, [clearMatchState, clearQueueState, user?.id]);
 
   const handleEnterMatch = (matchId: string) => {
     setSelectedMatchId(matchId);
@@ -76,7 +86,6 @@ const AppContent: React.FC = () => {
         {currentView === 'landing' && (
           <LandingPage
             onEnterArena={handleEnterArena}
-            onViewArchitecture={() => setCurrentView('architecture')}
           />
         )}
 
@@ -93,8 +102,6 @@ const AppContent: React.FC = () => {
             onBackToLobby={() => setCurrentView('lobby')}
           />
         )}
-
-        {currentView === 'architecture' && <ArchitecturePage />}
       </main>
 
       {/* Editorial footer */}

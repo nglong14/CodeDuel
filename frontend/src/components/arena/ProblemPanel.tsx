@@ -73,7 +73,7 @@ export const ProblemPanel: React.FC<ProblemPanelProps> = ({ problem }) => {
         <div className="space-y-4">
           <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-caption font-bold text-neutral-800">
             <Terminal className="w-4 h-4 text-ink" />
-            Standard I/O Contract (Docker Sandbox)
+            Standard Input and Output
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

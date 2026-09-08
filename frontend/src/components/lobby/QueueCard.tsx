@@ -15,12 +15,12 @@ export const QueueCard: React.FC<QueueCardProps> = ({
   onViewActiveMatch,
 }) => {
   const { user, quickLoginDemo } = useAuth();
-  const { isQueued, activeMatchId, latestError, startMatchmaking, clearQueueState, setIsWaitingModalOpen } = useWS();
+  const { isSearching, activeMatchId, latestError, startMatchmaking, cancelMatchmaking, setIsWaitingModalOpen } = useWS();
   const [queueElapsed, setQueueElapsed] = useState(0);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null;
-    if (isQueued) {
+    if (isSearching) {
       setQueueElapsed(0);
       timer = setInterval(() => {
         setQueueElapsed((prev) => prev + 1);
@@ -31,7 +31,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isQueued]);
+  }, [isSearching]);
 
   const formatElapsed = (sec: number) => {
     const mins = Math.floor(sec / 60);
@@ -50,7 +50,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
             Ready to enter the CodeDuel 1v1 queue?
           </h2>
           <p className="font-sans text-base text-neutral-800 mb-6 font-normal leading-relaxed">
-            Matches are real-time, 1-on-1 coding battles evaluated inside untrusted Docker sandboxes.
+            Matches are real-time, 1-on-1 coding battles where the first complete solution wins.
             Jump straight into matchmaking with 1-click test access or custom credentials.
           </p>
           <div className="flex flex-wrap items-center gap-3">
@@ -124,19 +124,19 @@ export const QueueCard: React.FC<QueueCardProps> = ({
       )}
 
       {/* Main Queue Card */}
-      {isQueued ? (
+      {isSearching ? (
         <ColorBlock variant="lilac">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="space-y-3 max-w-xl text-center md:text-left">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-canvas text-xs font-mono font-bold text-ink shadow-xs">
                 <span className="w-2.5 h-2.5 rounded-full bg-accent-magenta animate-ping" />
-                FIFO QUEUE POOL ACTIVE
+                SEARCHING FOR A DUEL
               </div>
               <h2 className="font-headline text-3xl md:text-4xl text-ink font-normal tracking-tight">
                 Searching for your opponent...
               </h2>
               <p className="font-sans text-base text-neutral-800 font-normal">
-                Waiting for another player to join the Redis queue. The Lua <code className="bg-canvas/80 px-1.5 py-0.5 rounded font-mono text-xs">pop_pair</code> script will atomically pair the two lowest timestamps.
+                Waiting for another player to join. You will enter the arena as soon as a match is ready.
               </p>
               <div className="pt-2 flex items-center gap-3">
                 <Button
@@ -168,7 +168,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
               </div>
               <Button
                 variant="secondary"
-                onClick={clearQueueState}
+                  onClick={cancelMatchmaking}
                 className="w-full text-xs py-2"
               >
                 Cancel Search
@@ -188,7 +188,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
                 Ready to compete, {user.display_name}?
               </h2>
               <p className="font-sans text-base text-neutral-800 font-normal leading-relaxed">
-                Enter the matchmaking pool. You will be matched against another developer in a 10-minute race. The first correct solution to pass all sandbox test cases wins.
+                Enter the matchmaking pool. You will be matched against another developer in a 10-minute race. The first complete solution wins.
               </p>
               <div className="pt-2 flex flex-wrap items-center gap-3">
                 <Button
@@ -214,7 +214,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-black" />
-                  <span><strong>First Full Pass Wins:</strong> Atomic victory claim.</span>
+                  <span><strong>First Full Pass Wins:</strong> Finish every test first.</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-black" />
@@ -222,7 +222,7 @@ export const QueueCard: React.FC<QueueCardProps> = ({
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-black" />
-                  <span><strong>Sandbox:</strong> PIDs, memory, CPU limits.</span>
+                  <span><strong>Fair Play:</strong> Same challenge, same time limit.</span>
                 </li>
               </ul>
             </div>

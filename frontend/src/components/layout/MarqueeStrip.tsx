@@ -3,13 +3,12 @@ import React from 'react';
 export const MarqueeStrip: React.FC = () => {
   const items = [
     '1V1 REAL-TIME DUELS',
-    'REDIS FIFO MATCHMAKING',
-    'DOCKER SANDBOX ISOLATION',
-    'ATOMIC WINNER SELECTION',
-    'POSTGRES ADVISORY LOCKS',
-    'SUB-MILLISECOND EVENT FANOUT',
+    'SHARED CODING CHALLENGES',
+    'TEN-MINUTE RACES',
+    'LIVE SUBMISSION RESULTS',
+    'FIRST FULL PASS WINS',
     'PYTHON • C++ • JAVA',
-    'SELF-HEALING REAPER',
+    'FIND YOUR NEXT DUEL',
   ];
 
   return (
