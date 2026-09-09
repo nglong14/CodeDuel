@@ -5,7 +5,9 @@ Real-time backend for 1v1 programming duels. Two players enter a FIFO queue, rec
 **Stack:** Go 1.26+, PostgreSQL, Redis, Docker.
 **Client today:** `duelcli`, a WebSocket test client. A React SPA is planned.
 
-https://github.com/user-attachments/assets/167b264c-403b-4adb-8450-1c9067b51742
+
+https://github.com/user-attachments/assets/6572aa6e-ee60-47d7-ae2c-93df52a441c4
+
 
 ## Run it locally
 
