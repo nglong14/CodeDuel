@@ -7,11 +7,13 @@ GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
 USER_ID ?= 11111111-1111-1111-1111-111111111111
 
-.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down reset
+.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down reset frontend-install frontend-dev frontend-build
 
 help:
 	@echo "CodeDuel targets:"
 	@echo "  make up            Start the core stack (Postgres, Redis, migrate, gateway, match, reaper)"
+	@echo "  make frontend-dev  Run the frontend dev server with hot reload"
+	@echo "  make frontend-build Build the production frontend"
 	@echo "  make up-infra      Start only Postgres + Redis"
 	@echo "  make up-judge      Start the standalone Judge (requires 'make sandbox-images')"
 	@echo "  make down          Stop the core stack"
@@ -111,3 +113,12 @@ migrate-down:
 reset:
 	docker compose -f $(COMPOSE_FILE) down -v --remove-orphans
 	docker compose -f $(COMPOSE_JUDGE_FILE) down -v --remove-orphans
+
+frontend-install:
+	cd frontend && npm install
+
+frontend-dev:
+	cd frontend && npm run dev
+
+frontend-build:
+	cd frontend && npm run build
