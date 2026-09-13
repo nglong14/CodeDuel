@@ -28,7 +28,7 @@ func NewDependencies(
 		return nil, fmt.Errorf("initialize postgres: %w", err)
 	}
 
-	redisClient, err := infrastructure.NewRedis(ctx, cfg.Redis.Addr)
+	redisClient, err := infrastructure.NewRedis(ctx, cfg.Redis.URL, cfg.Redis.Addr)
 	if err != nil {
 		postgres.Close()
 		return nil, fmt.Errorf("initialize redis: %w", err)

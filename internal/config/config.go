@@ -28,6 +28,7 @@ type PostgresConfig struct {
 }
 
 type RedisConfig struct {
+	URL string
 	Addr string
 }
 
@@ -170,6 +171,7 @@ func Load() (*Config, error) {
 			DSN: envOr("POSTGRES_DSN", "postgres://codeduel:codeduel@localhost:5433/codeduel?sslmode=disable"),
 		},
 		Redis: RedisConfig{
+			URL:  os.Getenv("REDIS_URL"),
 			Addr: envOr("REDIS_ADDR", "localhost:6379"),
 		},
 		Match: MatchConfig{

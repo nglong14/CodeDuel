@@ -12,6 +12,7 @@ import (
 
 	"github.com/nglong14/CodeDuel/internal/app"
 	accountauth "github.com/nglong14/CodeDuel/internal/auth"
+	"github.com/nglong14/CodeDuel/internal/infrastructure"
 	"github.com/nglong14/CodeDuel/internal/proto"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 	"github.com/nglong14/CodeDuel/internal/submission"
@@ -19,7 +20,8 @@ import (
 
 const (
 	shutdownTimeout = 5 * time.Second
-	presenceTTL     = 75 * time.Second
+	connectionDrainTimeout = 10 * time.Second
+	presenceTTL            = 75 * time.Second
 )
 
 var upgrader = websocket.Upgrader{
@@ -50,7 +52,7 @@ func Run(ctx context.Context, deps *app.Dependencies) error {
 	go func() {
 		deps.Logger.Info("ready",
 			"addr", srv.Addr,
-			"redis_addr", deps.Config.Redis.Addr,
+			"redis_host", infrastructure.RedisHost(deps.Config.Redis.URL, deps.Config.Redis.Addr),
 		)
 		errCh <- srv.ListenAndServe()
 	}()
@@ -63,7 +65,11 @@ func Run(ctx context.Context, deps *app.Dependencies) error {
 			deps.Logger.Info("http shutdown", "err", err)
 		}
 		registry.CloseAll()
-		registry.Wait()
+		if !registry.WaitWithTimeout(connectionDrainTimeout) {
+			deps.Logger.Warn("connection drain timed out; exiting with sockets still closing",
+				"timeout", connectionDrainTimeout,
+			)
+		}
 		return ctx.Err()
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
