@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -91,5 +92,32 @@ func TestRegistryRejectsConnectionAfterCloseAll(t *testing.T) {
 	case <-c.closed:
 	default:
 		t.Fatal("rejected connection was not closed")
+	}
+}
+
+func TestRegistryWaitWithTimeoutReturnsWhenDrained(t *testing.T) {
+	r := NewRegistry()
+	c := newConn(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil, r)
+	r.Add(c)
+	r.Done(c)
+
+	if !r.WaitWithTimeout(time.Second) {
+		t.Fatal("WaitWithTimeout = false, want true after all connections drained")
+	}
+}
+
+func TestRegistryWaitWithTimeoutBoundsStuckConnection(t *testing.T) {
+	r := NewRegistry()
+	c := newConn(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil, r)
+	r.Add(c)
+
+	if r.WaitWithTimeout(10 * time.Millisecond) {
+		t.Fatal("WaitWithTimeout = true, want false while a connection is still served")
+	}
+
+	// Draining afterward still unblocks a subsequent wait.
+	r.Done(c)
+	if !r.WaitWithTimeout(time.Second) {
+		t.Fatal("WaitWithTimeout = false after the connection drained")
 	}
 }

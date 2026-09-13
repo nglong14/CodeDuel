@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -82,4 +83,28 @@ func (r *Registry) Done(c *conn) {
 
 func (r *Registry) Wait() {
 	r.serve.Wait()
+}
+
+// WaitWithTimeout blocks until every served connection goroutine has finished or
+// the timeout elapses, whichever comes first. It reports true when all goroutines
+// drained and false when the timeout bounded the wait. A non-positive timeout
+// waits indefinitely, matching Wait.
+func (r *Registry) WaitWithTimeout(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		r.serve.Wait()
+		close(done)
+	}()
+	if timeout <= 0 {
+		<-done
+		return true
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
