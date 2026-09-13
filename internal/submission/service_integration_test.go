@@ -281,6 +281,16 @@ func integrationPostgres(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Fatalf("connect to test database: %v", err)
 	}
+	// The production migration sequence no longer seeds development identities, so
+	// provision the two players these tests reference.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, display_name)
+		VALUES ($1, 'submission-player-one@example.com', 'submission-player-one'),
+		       ($2, 'submission-player-two@example.com', 'submission-player-two')
+	`, integrationPlayerOne, integrationPlayerTwo); err != nil {
+		pool.Close()
+		t.Fatalf("seed integration players: %v", err)
+	}
 	t.Cleanup(func() {
 		pool.Close()
 		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+database+" WITH (FORCE)")

@@ -87,8 +87,10 @@ func TestAuthServicePostgresIntegration(t *testing.T) {
 	if _, err := svc.Login(ctx, "unknown@example.com", "some-password"); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("Login unknown account = %v, want ErrInvalidCredentials", err)
 	}
+	// alice is removed from the production migration sequence by 000011 and is now
+	// only a development fixture; it must never authenticate through the HTTP flow.
 	if _, err := svc.Login(ctx, "alice@codeduel.dev", "whatever-password"); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("Login seeded CLI-only account = %v, want ErrInvalidCredentials", err)
+		t.Fatalf("Login development-only account = %v, want ErrInvalidCredentials", err)
 	}
 	if _, err := svc.Register(ctx, "carol@example.com", "another-password"); !errors.Is(err, ErrEmailTaken) {
 		t.Fatalf("duplicate Register = %v, want ErrEmailTaken", err)

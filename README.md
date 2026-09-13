@@ -26,14 +26,21 @@ https://github.com/user-attachments/assets/6572aa6e-ee60-47d7-ae2c-93df52a441c4
    make up-judge
    ```
 
-3. Open two terminals and start the seeded players:
+3. Load the development-only fixture users (Alice and Bob). These are not part of
+   the production migration sequence, so seed them explicitly:
+
+   ```sh
+   make seed-dev
+   ```
+
+4. Open two terminals and start the fixture players:
 
    ```sh
    make run-cli USER_ID=11111111-1111-1111-1111-111111111111
    make run-cli USER_ID=22222222-2222-2222-2222-222222222222
    ```
 
-4. Type `join` in each client. Both receive `match_start`.
+5. Type `join` in each client. Both receive `match_start`.
 
 Stop services with `make down` and `make down-judge`. `make migrate-down` and `make reset` delete development data.
 

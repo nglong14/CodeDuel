@@ -94,9 +94,19 @@ func TestSubmissionLifecycleMigrationBackfillsAndRollsBack(t *testing.T) {
 	}
 	pool.Close()
 
-	if err := MigrateUp(ctx, testDSN); err != nil {
+	// Migrate to version 10 rather than latest: this legacy fixture deliberately
+	// references the seeded Alice/Bob identities, which the 000011 removal migration
+	// intentionally refuses to delete. Version 10 exercises the lifecycle migration
+	// (000004) and active-claims backfill (000007) that this test validates.
+	lifecycleMigrator, err := newMigrator(testDSN)
+	if err != nil {
+		t.Fatalf("create lifecycle migrator: %v", err)
+	}
+	if err := lifecycleMigrator.Migrate(10); err != nil {
+		_, _ = lifecycleMigrator.Close()
 		t.Fatalf("apply lifecycle migration: %v", err)
 	}
+	_, _ = lifecycleMigrator.Close()
 	pool, err = pgxpool.New(ctx, testDSN)
 	if err != nil {
 		t.Fatalf("open migrated database: %v", err)
@@ -329,4 +339,117 @@ func databaseDSN(t *testing.T, admin *pgxpool.Pool, database string) string {
 	}
 	testURL.Path = "/" + database
 	return testURL.String()
+}
+
+func TestRemoveDevIdentitiesMigration(t *testing.T) {
+	if os.Getenv("CODEDUEL_INTEGRATION") != "1" {
+		t.Skip("set CODEDUEL_INTEGRATION=1 to run integration tests")
+	}
+	ctx := context.Background()
+
+	const (
+		aliceID = "11111111-1111-1111-1111-111111111111"
+		bobID   = "22222222-2222-2222-2222-222222222222"
+	)
+
+	t.Run("fresh database removes dev identities", func(t *testing.T) {
+		admin, database := newAdminPoolAndDatabase(t)
+		t.Cleanup(func() {
+			_, _ = admin.Exec(context.Background(), "DROP DATABASE "+database+" WITH (FORCE)")
+			admin.Close()
+		})
+		testDSN := databaseDSN(t, admin, database)
+
+		if err := MigrateUp(ctx, testDSN); err != nil {
+			t.Fatalf("migrate fresh database: %v", err)
+		}
+
+		pool, err := pgxpool.New(ctx, testDSN)
+		if err != nil {
+			t.Fatalf("open migrated database: %v", err)
+		}
+		defer pool.Close()
+
+		var remaining int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM users WHERE id = ANY($1::uuid[])`,
+			[]string{aliceID, bobID},
+		).Scan(&remaining); err != nil {
+			t.Fatalf("count dev identities: %v", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("dev identities remaining after fresh migrate = %d, want 0", remaining)
+		}
+	})
+
+	t.Run("referenced dev identity produces actionable error", func(t *testing.T) {
+		admin, database := newAdminPoolAndDatabase(t)
+		t.Cleanup(func() {
+			_, _ = admin.Exec(context.Background(), "DROP DATABASE "+database+" WITH (FORCE)")
+			admin.Close()
+		})
+		testDSN := databaseDSN(t, admin, database)
+
+		// Migrate to version 10, the state just before the removal migration, so the
+		// seeded Alice/Bob rows exist and the full match schema is available.
+		legacyMigrator, err := newMigrator(testDSN)
+		if err != nil {
+			t.Fatalf("create migrator: %v", err)
+		}
+		if err := legacyMigrator.Migrate(10); err != nil {
+			_, _ = legacyMigrator.Close()
+			t.Fatalf("migrate through version 10: %v", err)
+		}
+		_, _ = legacyMigrator.Close()
+
+		pool, err := pgxpool.New(ctx, testDSN)
+		if err != nil {
+			t.Fatalf("open legacy database: %v", err)
+		}
+		var problemID uuid.UUID
+		if err := pool.QueryRow(ctx, `SELECT id FROM problems ORDER BY created_at, id LIMIT 1`).Scan(&problemID); err != nil {
+			pool.Close()
+			t.Fatalf("select seeded problem: %v", err)
+		}
+		matchID := uuid.New()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO matches (id, problem_id, deadline)
+			VALUES ($1, $2, now() + interval '1 hour')
+		`, matchID, problemID); err != nil {
+			pool.Close()
+			t.Fatalf("insert referencing match: %v", err)
+		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO match_players (match_id, user_id, slot) VALUES ($1, $2, 1)`,
+			matchID, aliceID,
+		); err != nil {
+			pool.Close()
+			t.Fatalf("insert referencing player: %v", err)
+		}
+		pool.Close()
+
+		err = MigrateUp(ctx, testDSN)
+		if err == nil {
+			t.Fatal("MigrateUp succeeded, want failure for referenced dev identity")
+		}
+		if !strings.Contains(err.Error(), "cannot delete the Alice/Bob fixtures") {
+			t.Fatalf("error = %v, want actionable fixture message", err)
+		}
+
+		// Alice must remain intact because the migration aborted.
+		pool, err = pgxpool.New(ctx, testDSN)
+		if err != nil {
+			t.Fatalf("reopen database: %v", err)
+		}
+		defer pool.Close()
+		var remaining int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM users WHERE id = $1`, aliceID,
+		).Scan(&remaining); err != nil {
+			t.Fatalf("count alice after failed migrate: %v", err)
+		}
+		if remaining != 1 {
+			t.Fatalf("alice rows after failed migrate = %d, want 1", remaining)
+		}
+	})
 }

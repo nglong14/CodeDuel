@@ -29,6 +29,14 @@ func TestEnqueueForMatchRejectsActivePlayerIntegration(t *testing.T) {
 	pool := gatewayIntegrationPostgres(t)
 	ctx := context.Background()
 	userID := testUserID()
+	// Create the player explicitly rather than relying on a seeded fixture: the
+	// production migration sequence no longer ships development identities.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, email, display_name)
+		VALUES ($1, 'matchmaking-fixture@example.com', 'matchmaking-fixture')
+	`, userID); err != nil {
+		t.Fatalf("insert test player: %v", err)
+	}
 	member := redisx.QueueMember{
 		UserID:      userID,
 		PresenceKey: redisx.PresenceKey(userID, uuid.New()),

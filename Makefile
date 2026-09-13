@@ -7,7 +7,9 @@ GOLANGCI_LINT := $(shell $(GO) env GOPATH)/bin/golangci-lint
 
 USER_ID ?= 11111111-1111-1111-1111-111111111111
 
-.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down reset
+DEV_SEED_FILE := deploy/dev/seed_users.sql
+
+.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset
 
 help:
 	@echo "CodeDuel targets:"
@@ -33,6 +35,7 @@ help:
 	@echo "  make run-cli       Run duelcli (USER_ID=$(USER_ID))"
 	@echo "  make migrate       Apply database migrations"
 	@echo "  make migrate-down  Roll back database migrations"
+	@echo "  make seed-dev      Load development-only fixture users (Alice/Bob)"
 	@echo "  make reset         Destructively reset development data (removes volumes)"
 
 up:
@@ -107,6 +110,10 @@ migrate:
 
 migrate-down:
 	$(GO) run ./cmd/codeduel --role=migrate --direction=down
+
+seed-dev:
+	docker compose -f $(COMPOSE_FILE) exec -T postgres \
+		psql -v ON_ERROR_STOP=1 -U codeduel -d codeduel < $(DEV_SEED_FILE)
 
 reset:
 	docker compose -f $(COMPOSE_FILE) down -v --remove-orphans
