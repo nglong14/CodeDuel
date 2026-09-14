@@ -4,8 +4,8 @@
 # match, reaper). It intentionally does NOT include the Judge: the Judge needs
 # host Docker daemon access, which is effectively host-root, and must be kept on
 # a dedicated host (see deploy/docker-compose.judge.yml and the README security
-# boundary). Until the frontend PR supplies the final application Dockerfile,
-# roles run from a pinned Go image with the source mounted read-only.
+# boundary). Local roles intentionally run from a pinned Go image with the source
+# mounted read-only; production builds use the repository's root Dockerfile.
 #
 #   make up          start the complete core stack
 #   make up-infra    start only postgres and redis

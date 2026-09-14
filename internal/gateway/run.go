@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	shutdownTimeout = 5 * time.Second
+	shutdownTimeout        = 5 * time.Second
 	connectionDrainTimeout = 10 * time.Second
 	presenceTTL            = 75 * time.Second
 )

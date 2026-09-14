@@ -28,7 +28,7 @@ type PostgresConfig struct {
 }
 
 type RedisConfig struct {
-	URL string
+	URL  string
 	Addr string
 }
 
