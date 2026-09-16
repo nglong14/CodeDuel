@@ -77,6 +77,9 @@ PostgreSQL is the source of truth. Redis provides matchmaking, presence, queuein
 | `POST /api/auth/register` | Create an account and receive a JWT. |
 | `POST /api/auth/login` | Sign in and receive a JWT. |
 | `GET /api/me` | Get the current user; requires `Authorization: Bearer <token>`. |
+| `GET /api/me/match` | Get the caller's current active match, or `null`; requires bearer auth. |
+| `GET /api/matches/{id}` | Get a match snapshot by ID if the caller played in it; requires bearer auth. |
+| `GET /ws` | WebSocket endpoint for queueing and submissions; requires a JWT via `Authorization: Bearer` or `?token=`. |
 | `GET /healthz` / `GET /readyz` | Liveness / dependency readiness checks. |
 
 Example registration request:

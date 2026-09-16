@@ -9,18 +9,7 @@ USER_ID ?= 11111111-1111-1111-1111-111111111111
 
 DEV_SEED_FILE := deploy/dev/seed_users.sql
 
-K8S_DIR := deploy/k8s
-K8S_RENDER_DIR := bin/k8s
-K8S_OVERLAYS := staging/migration staging/runtime production/migration production/runtime
-KUBECONFORM_VERSION := v0.8.0
-KUBECONFORM := $(shell $(GO) env GOPATH)/bin/kubeconform
-KUBERNETES_VERSION := 1.34.0
-# CRD schemas pinned to a CRDs-catalog commit. Add the cert-manager entry back when the
-# edge gains a TLS listener.
-CRD_CATALOG_REF := ad3b08c5045129d7bb1eeffd8e61719b2c8dd1e2
-CRD_SCHEMA := https://raw.githubusercontent.com/datreeio/CRDs-catalog/$(CRD_CATALOG_REF)/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
-
-.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset k8s-render k8s-validate
+.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset
 
 help:
 	@echo "CodeDuel targets:"
@@ -48,8 +37,6 @@ help:
 	@echo "  make migrate-down  Roll back database migrations"
 	@echo "  make seed-dev      Load development-only fixture users (Alice/Bob)"
 	@echo "  make reset         Destructively reset development data (removes volumes)"
-	@echo "  make k8s-render    Render all Kubernetes overlays into $(K8S_RENDER_DIR)"
-	@echo "  make k8s-validate  Render, then schema-validate with kubeconform (strict)"
 
 up:
 	docker compose -f $(COMPOSE_FILE) up -d --wait
@@ -131,25 +118,3 @@ seed-dev:
 reset:
 	docker compose -f $(COMPOSE_FILE) down -v --remove-orphans
 	docker compose -f $(COMPOSE_JUDGE_FILE) down -v --remove-orphans
-
-k8s-render:
-	rm -rf $(K8S_RENDER_DIR)
-	mkdir -p $(K8S_RENDER_DIR)
-	@set -e; for overlay in $(K8S_OVERLAYS); do \
-		out="$(K8S_RENDER_DIR)/$$(echo $$overlay | tr '/' '-').yaml"; \
-		echo "rendering $$overlay -> $$out"; \
-		kubectl kustomize "$(K8S_DIR)/overlays/$$overlay" > "$$out"; \
-	done
-
-k8s-validate: k8s-render
-	@# go install pins the version; a stamp file avoids reinstalling on every run because
-	@# a go-installed kubeconform reports its version as "development".
-	@if [ ! -x "$(KUBECONFORM)" ] || [ ! -f "bin/.kubeconform-$(KUBECONFORM_VERSION)" ]; then \
-		$(GO) install github.com/yannh/kubeconform/cmd/kubeconform@$(KUBECONFORM_VERSION); \
-		mkdir -p bin && touch "bin/.kubeconform-$(KUBECONFORM_VERSION)"; \
-	fi
-	$(KUBECONFORM) -strict -summary \
-		-kubernetes-version $(KUBERNETES_VERSION) \
-		-schema-location default \
-		-schema-location '$(CRD_SCHEMA)' \
-		$(K8S_RENDER_DIR)/*.yaml $(K8S_DIR)/overlays/*/namespace.yaml
