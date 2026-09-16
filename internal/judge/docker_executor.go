@@ -80,6 +80,7 @@ type DockerExecutor struct {
 	images           map[Language]string
 	instanceID       string
 	staleResourceAge time.Duration
+	runtime          string
 }
 
 func NewDockerExecutor(ctx context.Context, cfg config.JudgeConfig, logger *slog.Logger) (*DockerExecutor, error) {
@@ -117,7 +118,7 @@ func newDockerExecutor(
 	if err != nil {
 		return nil, fmt.Errorf("inspect Docker daemon: %w", err)
 	}
-	if err := validateDockerHost(info); err != nil {
+	if err := validateDockerHost(info, cfg.SandboxRuntime); err != nil {
 		return nil, err
 	}
 
@@ -143,6 +144,7 @@ func newDockerExecutor(
 		images:           images,
 		instanceID:       uuid.NewString(),
 		staleResourceAge: cfg.AttemptLease,
+		runtime:          cfg.SandboxRuntime,
 	}
 	if err := executor.cleanupStaleResources(ctx); err != nil {
 		return nil, fmt.Errorf("clean stale sandbox resources: %w", err)
@@ -152,6 +154,7 @@ func newDockerExecutor(
 		"python_image_id", images[LanguagePython],
 		"cpp_image_id", images[LanguageCPP],
 		"java_image_id", images[LanguageJava],
+		"runtime", executor.runtime,
 	)
 	return executor, nil
 }
@@ -354,7 +357,7 @@ func (e *DockerExecutor) createContainer(
 	workspaceReadOnly bool,
 	limits Limits,
 ) (string, error) {
-	options := sandboxContainerOptions(imageID, name, labels, command, volumeName, workspaceReadOnly, limits)
+	options := sandboxContainerOptions(imageID, name, labels, command, volumeName, workspaceReadOnly, limits, e.runtime)
 	created, err := e.engine.ContainerCreate(ctx, options)
 	if err != nil {
 		return options.Name, fmt.Errorf("create sandbox container: %w", err)
@@ -368,7 +371,7 @@ func (e *DockerExecutor) createContainer(
 	return options.Name, nil
 }
 
-func validateDockerHost(result client.SystemInfoResult) error {
+func validateDockerHost(result client.SystemInfoResult, runtime string) error {
 	info := result.Info
 	if info.OSType != "linux" {
 		return fmt.Errorf("docker sandbox requires a Linux daemon, got %q", info.OSType)
@@ -386,6 +389,11 @@ func validateDockerHost(result client.SystemInfoResult) error {
 	if !seccompEnabled {
 		return errors.New("docker daemon does not report an enabled seccomp profile")
 	}
+	if runtime != "" {
+		if _, ok := info.Runtimes[runtime]; !ok {
+			return fmt.Errorf("docker daemon does not register sandbox runtime %q", runtime)
+		}
+	}
 	return nil
 }
 
@@ -396,6 +404,7 @@ func sandboxContainerOptions(
 	volumeName string,
 	workspaceReadOnly bool,
 	limits Limits,
+	runtime string,
 ) client.ContainerCreateOptions {
 	pids := limits.PIDLimit
 	return client.ContainerCreateOptions{
@@ -417,6 +426,7 @@ func sandboxContainerOptions(
 		HostConfig: &container.HostConfig{
 			LogConfig:      container.LogConfig{Type: "none"},
 			NetworkMode:    container.NetworkMode("none"),
+			Runtime:        runtime,
 			CapDrop:        []string{"ALL"},
 			Privileged:     false,
 			ReadonlyRootfs: true,

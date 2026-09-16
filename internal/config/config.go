@@ -70,6 +70,7 @@ type JudgeConfig struct {
 	PythonImage     string
 	CPPImage        string
 	JavaImage       string
+	SandboxRuntime  string
 }
 
 type ReaperConfig struct {
@@ -213,7 +214,7 @@ func loadJudgeConfig() (JudgeConfig, error) {
 	if err != nil {
 		return JudgeConfig{}, err
 	}
-	testTimeout, err := positiveDuration("JUDGE_TEST_TIMEOUT", "2s")
+	testTimeout, err := positiveDuration("JUDGE_TEST_TIMEOUT", "5s")
 	if err != nil {
 		return JudgeConfig{}, err
 	}
@@ -239,6 +240,7 @@ func loadJudgeConfig() (JudgeConfig, error) {
 		PythonImage:    envOr("JUDGE_PYTHON_IMAGE", "codeduel/sandbox-python:3.13"),
 		CPPImage:       envOr("JUDGE_CPP_IMAGE", "codeduel/sandbox-cpp:gcc14"),
 		JavaImage:      envOr("JUDGE_JAVA_IMAGE", "codeduel/sandbox-java:temurin21"),
+		SandboxRuntime: envOr("JUDGE_SANDBOX_RUNTIME", ""),
 	}
 	values := []struct {
 		name     string

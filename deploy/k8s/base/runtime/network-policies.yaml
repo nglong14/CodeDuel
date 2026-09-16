@@ -1,0 +1,83 @@
+# NetworkPolicy is enforced only if the cluster CNI supports it. Verify enforcement on
+# the target cluster; an unsupported CNI silently accepts these objects.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codeduel-default-deny-ingress
+  labels:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/part-of: codeduel
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codeduel-gateway-ingress-from-edge
+  labels:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/part-of: codeduel
+    app.kubernetes.io/component: gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: codeduel
+      app.kubernetes.io/component: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # MUST VERIFY before the first apply: resolve the data-plane namespace and pod labels
+    # from the installed Envoy Gateway Deployment
+    # (kubectl -n envoy-gateway-system get deploy --show-labels) and correct these
+    # selectors. Wrong labels fail closed: the edge cannot reach Gateway.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: envoy-gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codeduel-egress
+  labels:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/part-of: codeduel
+spec:
+  # Selects every CodeDuel pod, including the migration Job, which carries the same
+  # part-of label. Selecting a pod in an Egress policy denies all egress not listed here.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: codeduel
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Standard NetworkPolicy cannot express FQDN rules, so managed PostgreSQL and Redis
+    # are permitted by port to any destination. Narrow this with private endpoints,
+    # provider security groups, or a CNI-specific FQDN policy rather than IP ranges.
+    # Patch the ports in an overlay if the provider uses non-default ports, for example
+    # Azure Cache for Redis on 6380.
+    - ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379

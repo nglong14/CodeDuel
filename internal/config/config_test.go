@@ -69,12 +69,16 @@ func TestLoadJudgeDefaults(t *testing.T) {
 	t.Setenv("JUDGE_MEMORY_BYTES", "")
 	t.Setenv("JUDGE_MEMORY_SWAP_BYTES", "")
 	t.Setenv("JUDGE_ATTEMPT_LEASE", "")
+	t.Setenv("JUDGE_SANDBOX_RUNTIME", "")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Judge.Concurrency != 2 || cfg.Judge.MemoryBytes != 256<<20 {
 		t.Fatalf("Judge defaults = %#v", cfg.Judge)
+	}
+	if cfg.Judge.SandboxRuntime != "" {
+		t.Fatalf("SandboxRuntime = %q, want empty", cfg.Judge.SandboxRuntime)
 	}
 	if cfg.Judge.AttemptLease <= cfg.Judge.TotalTimeout+2*cfg.Judge.CleanupTimeout+judgeSetupMargin {
 		t.Fatalf("attempt lease %v does not cover execution and cleanup", cfg.Judge.AttemptLease)

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: codeduel-gateway
+  labels:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/part-of: codeduel
+    app.kubernetes.io/component: gateway
+spec:
+  # Stays ClusterIP. The public address belongs to the Envoy Gateway data plane; this
+  # Service is what the HTTPRoute, in-cluster readiness checks, and kubectl port-forward
+  # target.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

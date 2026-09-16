@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codeduel-runtime-config
+  labels:
+    app.kubernetes.io/name: codeduel
+    app.kubernetes.io/part-of: codeduel
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  GATEWAY_ADDR: ":8080"
+  AUTH_TOKEN_TTL: "24h"
+  MATCH_DURATION: "10m"
+  SUBMISSION_DISPATCH_INTERVAL: "5s"
+  SUBMISSION_REENQUEUE_AFTER: "30s"
+  REAPER_INTERVAL: "10s"
+  REAPER_MAX_ATTEMPTS: "3"
+  REAPER_STREAM_MIN_IDLE: "2m"
+  REAPER_BATCH_SIZE: "32"
+  # config.Load validates REAPER_STREAM_MIN_IDLE against JUDGE_ATTEMPT_LEASE for every
+  # role, so this value must stay here even though Judge runs outside Kubernetes.
+  JUDGE_ATTEMPT_LEASE: "1m"

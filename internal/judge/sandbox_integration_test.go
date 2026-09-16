@@ -127,11 +127,17 @@ func TestSandboxBoundaryIntegration(t *testing.T) {
 import socket
 
 uid_ok = os.getuid() != 0 and os.getgid() != 0
+with open("/proc/version", encoding="utf-8") as version:
+    gvisor = "gvisor" in version.read().lower()
+fields = {}
 with open("/proc/self/status", encoding="utf-8") as status:
-    status_lines = status.readlines()
-caps_ok = int(next(line for line in status_lines if line.startswith("CapEff:")).split()[1], 16) == 0
-no_new_privs = next(line for line in status_lines if line.startswith("NoNewPrivs:")).split()[1] == "1"
-seccomp = next(line for line in status_lines if line.startswith("Seccomp:")).split()[1] == "2"
+    for line in status:
+        key, _, rest = line.partition(":")
+        if rest:
+            fields[key] = rest.split()[0]
+caps_ok = int(fields.get("CapEff", "1"), 16) == 0
+no_new_privs = fields.get("NoNewPrivs") == "1" or (gvisor and "NoNewPrivs" not in fields)
+seccomp = fields.get("Seccomp") == "2" or (gvisor and fields.get("Seccomp", "0") == "0")
 
 root_read_only = False
 try:
@@ -166,6 +172,7 @@ print("secure" if all((uid_ok, caps_ok, no_new_privs, seccomp, root_read_only, w
 		{"cpp", LanguageCPP, `#include <arpa/inet.h>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
@@ -173,18 +180,31 @@ print("secure" if all((uid_ok, caps_ok, no_new_privs, seccomp, root_read_only, w
 
 int main() {
     bool uid_ok = getuid() != 0 && getgid() != 0;
+    std::ifstream version("/proc/version");
+    std::string version_text((std::istreambuf_iterator<char>(version)), std::istreambuf_iterator<char>());
+    bool gvisor = version_text.find("gvisor") != std::string::npos;
     std::ifstream status("/proc/self/status");
     std::string line;
     bool caps_ok = false;
 	bool no_new_privs = false;
 	bool seccomp = false;
+    bool saw_nnp = false;
+    bool saw_seccomp = false;
     while (std::getline(status, line)) {
         if (line.rfind("CapEff:", 0) == 0) {
             caps_ok = std::stoull(line.substr(7), nullptr, 16) == 0;
         }
-		if (line.rfind("NoNewPrivs:", 0) == 0) no_new_privs = line.find('1') != std::string::npos;
-		if (line.rfind("Seccomp:", 0) == 0) seccomp = line.find('2') != std::string::npos;
+		if (line.rfind("NoNewPrivs:", 0) == 0) {
+            saw_nnp = true;
+            no_new_privs = line.find('1') != std::string::npos;
+        }
+		if (line.rfind("Seccomp:", 0) == 0) {
+            saw_seccomp = true;
+            seccomp = line.find('2') != std::string::npos || (gvisor && line.find('0') != std::string::npos);
+        }
     }
+    if (gvisor && !saw_nnp) no_new_privs = true;
+    if (gvisor && !saw_seccomp) seccomp = true;
     std::ofstream root("/codeduel-root-write");
     bool root_read_only = !root;
     std::ofstream workspace("/workspace/leak");
@@ -214,12 +234,24 @@ class Main {
         boolean capsOk = false;
 		boolean noNewPrivs = false;
 		boolean seccomp = false;
+        boolean gvisor = Files.readString(Path.of("/proc/version")).toLowerCase().contains("gvisor");
+        boolean sawNnp = false;
+        boolean sawSeccomp = false;
         for (String line : Files.readAllLines(Path.of("/proc/self/status"))) {
             if (line.startsWith("Uid:")) uidOk = !line.split("\\s+")[1].equals("0");
             if (line.startsWith("CapEff:")) capsOk = new BigInteger(line.split("\\s+")[1], 16).equals(BigInteger.ZERO);
-			if (line.startsWith("NoNewPrivs:")) noNewPrivs = line.split("\\s+")[1].equals("1");
-			if (line.startsWith("Seccomp:")) seccomp = line.split("\\s+")[1].equals("2");
+			if (line.startsWith("NoNewPrivs:")) {
+                sawNnp = true;
+                noNewPrivs = line.split("\\s+")[1].equals("1");
+            }
+			if (line.startsWith("Seccomp:")) {
+                sawSeccomp = true;
+                String mode = line.split("\\s+")[1];
+                seccomp = mode.equals("2") || (gvisor && mode.equals("0"));
+            }
         }
+        if (gvisor && !sawNnp) noNewPrivs = true;
+        if (gvisor && !sawSeccomp) seccomp = true;
         boolean rootReadOnly = writeFails(Path.of("/codeduel-root-write"));
         boolean workspaceReadOnly = writeFails(Path.of("/workspace/leak"));
         boolean networkBlocked = false;
@@ -339,6 +371,18 @@ func TestSandboxMissingImageIntegration(t *testing.T) {
 	}
 }
 
+func TestSandboxUnknownRuntimeIntegration(t *testing.T) {
+	requireDockerIntegration(t)
+	cfg := sandboxTestConfig()
+	cfg.SandboxRuntime = "codeduel-missing-runtime"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if executor, err := NewDockerExecutor(ctx, cfg, slog.New(slog.DiscardHandler)); err == nil {
+		_ = executor.Close()
+		t.Fatal("NewDockerExecutor returned nil error for unknown runtime")
+	}
+}
+
 func TestSandboxUnavailableDockerIntegration(t *testing.T) {
 	requireDockerIntegration(t)
 	t.Setenv("DOCKER_HOST", "unix:///tmp/codeduel-missing-docker.sock")
@@ -377,7 +421,7 @@ func requireDockerIntegration(t *testing.T) {
 }
 
 func sandboxTestConfig() config.JudgeConfig {
-	return config.JudgeConfig{
+	cfg := config.JudgeConfig{
 		Concurrency:     1,
 		MaxCodeBytes:    64 << 10,
 		MaxOutputBytes:  1 << 20,
@@ -395,7 +439,16 @@ func sandboxTestConfig() config.JudgeConfig {
 		PythonImage:     "codeduel/sandbox-python:3.13",
 		CPPImage:        "codeduel/sandbox-cpp:gcc14",
 		JavaImage:       "codeduel/sandbox-java:temurin21",
+		SandboxRuntime:  os.Getenv("JUDGE_SANDBOX_RUNTIME"),
 	}
+	if cfg.SandboxRuntime != "" {
+		// ponytail: runc fits in 2s/10s; runsc pays sentry startup per container.
+		cfg.CompileTimeout = 30 * time.Second
+		cfg.TestTimeout = 10 * time.Second
+		cfg.TotalTimeout = 90 * time.Second
+		cfg.AttemptLease = 2 * time.Minute
+	}
+	return cfg
 }
 
 func assertSandboxOutcome(

@@ -133,6 +133,7 @@ func TestSandboxContainerOptions(t *testing.T) {
 		"workspace",
 		true,
 		limits,
+		"runsc",
 	)
 	if options.Image != "sha256:image" || options.Config.Image != "" {
 		t.Fatalf("image options = (%q, %q)", options.Image, options.Config.Image)
@@ -142,6 +143,9 @@ func TestSandboxContainerOptions(t *testing.T) {
 	}
 	if options.HostConfig.NetworkMode != "none" || !options.HostConfig.ReadonlyRootfs || options.HostConfig.Privileged {
 		t.Fatalf("host isolation config = %#v", options.HostConfig)
+	}
+	if options.HostConfig.Runtime != "runsc" {
+		t.Fatalf("Runtime = %q, want runsc", options.HostConfig.Runtime)
 	}
 	if len(options.HostConfig.CapDrop) != 1 || options.HostConfig.CapDrop[0] != "ALL" {
 		t.Fatalf("CapDrop = %v, want ALL", options.HostConfig.CapDrop)
@@ -203,26 +207,33 @@ func TestValidateDockerHost(t *testing.T) {
 		PidsLimit:       true,
 		SecurityOptions: []string{"name=seccomp,profile=builtin"},
 	}}
-	if err := validateDockerHost(valid); err != nil {
+	if err := validateDockerHost(valid, ""); err != nil {
 		t.Fatalf("validateDockerHost: %v", err)
+	}
+	registered := valid
+	registered.Info.Runtimes = map[string]system.RuntimeWithStatus{"runsc": {}}
+	if err := validateDockerHost(registered, "runsc"); err != nil {
+		t.Fatalf("validateDockerHost registered runsc: %v", err)
 	}
 
 	tests := []struct {
-		name   string
-		mutate func(*system.Info)
+		name    string
+		runtime string
+		mutate  func(*system.Info)
 	}{
-		{"non-Linux", func(info *system.Info) { info.OSType = "windows" }},
-		{"no memory limit", func(info *system.Info) { info.MemoryLimit = false }},
-		{"no swap limit", func(info *system.Info) { info.SwapLimit = false }},
-		{"no CPU quota", func(info *system.Info) { info.CPUCfsQuota = false }},
-		{"no PID limit", func(info *system.Info) { info.PidsLimit = false }},
-		{"no seccomp", func(info *system.Info) { info.SecurityOptions = nil }},
+		{"non-Linux", "", func(info *system.Info) { info.OSType = "windows" }},
+		{"no memory limit", "", func(info *system.Info) { info.MemoryLimit = false }},
+		{"no swap limit", "", func(info *system.Info) { info.SwapLimit = false }},
+		{"no CPU quota", "", func(info *system.Info) { info.CPUCfsQuota = false }},
+		{"no PID limit", "", func(info *system.Info) { info.PidsLimit = false }},
+		{"no seccomp", "", func(info *system.Info) { info.SecurityOptions = nil }},
+		{"missing runtime", "runsc", func(*system.Info) {}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			invalid := valid
 			test.mutate(&invalid.Info)
-			if err := validateDockerHost(invalid); err == nil {
+			if err := validateDockerHost(invalid, test.runtime); err == nil {
 				t.Fatal("validateDockerHost returned nil error")
 			}
 		})

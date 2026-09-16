@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Migration entry point. Kept separate from runtime so the Job can be deleted and
+# recreated without touching Deployments.
+resources:
+  - migration-job.yaml
