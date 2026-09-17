@@ -83,6 +83,76 @@ func TestLoadJudgeDefaults(t *testing.T) {
 	if cfg.Judge.AttemptLease <= cfg.Judge.TotalTimeout+2*cfg.Judge.CleanupTimeout+judgeSetupMargin {
 		t.Fatalf("attempt lease %v does not cover execution and cleanup", cfg.Judge.AttemptLease)
 	}
+	if cfg.Judge.Executor != JudgeExecutorDocker {
+		t.Fatalf("Executor = %q, want %q", cfg.Judge.Executor, JudgeExecutorDocker)
+	}
+	if cfg.Judge.K8sRuntimeClass != "gvisor" {
+		t.Fatalf("K8sRuntimeClass = %q, want gvisor", cfg.Judge.K8sRuntimeClass)
+	}
+	if got := cfg.Judge.K8sNodeSelector; len(got) != 1 || got["sandbox"] != "true" {
+		t.Fatalf("K8sNodeSelector = %v, want sandbox=true", got)
+	}
+}
+
+func TestLoadJudgeKubernetesExecutor(t *testing.T) {
+	t.Setenv("JUDGE_EXECUTOR", "kubernetes")
+	t.Setenv("JUDGE_K8S_NAMESPACE", "codeduel-dev")
+	t.Setenv("JUDGE_K8S_RUNTIME_CLASS", "gvisor")
+	t.Setenv("JUDGE_K8S_NODE_SELECTOR", "sandbox=true, tier=judge")
+	t.Setenv("JUDGE_K8S_TOLERATION_KEY", "sandbox")
+	t.Setenv("JUDGE_K8S_TOLERATION_VALUE", "true")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	judge := cfg.Judge
+	if judge.Executor != JudgeExecutorKubernetes || judge.K8sNamespace != "codeduel-dev" {
+		t.Fatalf("kubernetes executor config = %#v", judge)
+	}
+	if len(judge.K8sNodeSelector) != 2 || judge.K8sNodeSelector["sandbox"] != "true" || judge.K8sNodeSelector["tier"] != "judge" {
+		t.Fatalf("K8sNodeSelector = %v", judge.K8sNodeSelector)
+	}
+}
+
+func TestLoadRejectsKubernetesExecutorWithoutNamespace(t *testing.T) {
+	t.Setenv("JUDGE_EXECUTOR", "kubernetes")
+	t.Setenv("JUDGE_K8S_NAMESPACE", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted kubernetes executor without a namespace")
+	}
+}
+
+func TestLoadRejectsUnknownJudgeExecutor(t *testing.T) {
+	t.Setenv("JUDGE_EXECUTOR", "podman")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted an unknown JUDGE_EXECUTOR")
+	}
+}
+
+func TestLoadRejectsMalformedNodeSelector(t *testing.T) {
+	t.Setenv("JUDGE_EXECUTOR", "kubernetes")
+	t.Setenv("JUDGE_K8S_NAMESPACE", "codeduel-dev")
+	t.Setenv("JUDGE_K8S_NODE_SELECTOR", "sandbox")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a malformed JUDGE_K8S_NODE_SELECTOR")
+	}
+}
+
+func TestJudgeConfigValidateKubernetesRequiresRuntimeClass(t *testing.T) {
+	cfg, err := loadJudgeConfig()
+	if err != nil {
+		t.Fatalf("loadJudgeConfig: %v", err)
+	}
+	cfg.Executor = JudgeExecutorKubernetes
+	cfg.K8sNamespace = "codeduel-dev"
+	cfg.K8sRuntimeClass = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate accepted kubernetes executor without a runtime class")
+	}
+	cfg.K8sRuntimeClass = "gvisor"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
 }
 
 func TestLoadRejectsInvalidJudgeConfig(t *testing.T) {

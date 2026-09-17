@@ -52,6 +52,11 @@ type AuthConfig struct {
 	TokenTTL time.Duration
 }
 
+const (
+	JudgeExecutorDocker = "docker"
+	JudgeExecutorKubernetes = "kubernetes"
+)
+
 type JudgeConfig struct {
 	Concurrency     int
 	MaxCodeBytes    int64
@@ -71,6 +76,12 @@ type JudgeConfig struct {
 	CPPImage        string
 	JavaImage       string
 	SandboxRuntime  string
+	Executor string
+	K8sNamespace string
+	K8sRuntimeClass string
+	K8sNodeSelector map[string]string
+	K8sTolerationKey   string
+	K8sTolerationValue string
 }
 
 type ReaperConfig struct {
@@ -106,6 +117,18 @@ func (c JudgeConfig) Validate() error {
 	}
 	if c.PythonImage == "" || c.CPPImage == "" || c.JavaImage == "" {
 		return fmt.Errorf("judge image references must not be empty")
+	}
+	switch c.Executor {
+	case "", JudgeExecutorDocker:
+	case JudgeExecutorKubernetes:
+		if c.K8sNamespace == "" {
+			return fmt.Errorf("JUDGE_K8S_NAMESPACE is required when JUDGE_EXECUTOR=kubernetes")
+		}
+		if c.K8sRuntimeClass == "" {
+			return fmt.Errorf("JUDGE_K8S_RUNTIME_CLASS is required when JUDGE_EXECUTOR=kubernetes")
+		}
+	default:
+		return fmt.Errorf("JUDGE_EXECUTOR must be %q or %q", JudgeExecutorDocker, JudgeExecutorKubernetes)
 	}
 	return nil
 }
@@ -241,7 +264,18 @@ func loadJudgeConfig() (JudgeConfig, error) {
 		CPPImage:       envOr("JUDGE_CPP_IMAGE", "codeduel/sandbox-cpp:gcc14"),
 		JavaImage:      envOr("JUDGE_JAVA_IMAGE", "codeduel/sandbox-java:temurin21"),
 		SandboxRuntime: envOr("JUDGE_SANDBOX_RUNTIME", ""),
+
+		Executor:           strings.ToLower(envOr("JUDGE_EXECUTOR", JudgeExecutorDocker)),
+		K8sNamespace:       envOr("JUDGE_K8S_NAMESPACE", ""),
+		K8sRuntimeClass:    envOr("JUDGE_K8S_RUNTIME_CLASS", "gvisor"),
+		K8sTolerationKey:   envOr("JUDGE_K8S_TOLERATION_KEY", "sandbox"),
+		K8sTolerationValue: envOr("JUDGE_K8S_TOLERATION_VALUE", "true"),
 	}
+	nodeSelector, err := parseKeyValues("JUDGE_K8S_NODE_SELECTOR", "sandbox=true")
+	if err != nil {
+		return JudgeConfig{}, err
+	}
+	cfg.K8sNodeSelector = nodeSelector
 	values := []struct {
 		name     string
 		fallback string
@@ -324,4 +358,26 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseKeyValues(name, fallback string) (map[string]string, error) {
+	raw := envOr(name, fallback)
+	if raw == "-" {
+		return map[string]string{}, nil
+	}
+	result := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if !ok || key == "" {
+			return nil, fmt.Errorf("parse %s: %q must be key=value", name, pair)
+		}
+		result[key] = value
+	}
+	return result, nil
 }
