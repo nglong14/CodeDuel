@@ -4,22 +4,47 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/nglong14/CodeDuel/internal/app"
+	"github.com/nglong14/CodeDuel/internal/config"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 )
 
+var newExecutor = func(
+	ctx context.Context,
+	cfg config.JudgeConfig,
+	logger *slog.Logger,
+) (Executor, error) {
+	return newExecutorForConfig(ctx, cfg, logger)
+}
+
+func newExecutorForConfig(
+	ctx context.Context,
+	cfg config.JudgeConfig,
+	logger *slog.Logger,
+) (Executor, error) {
+	switch cfg.Executor {
+	case "", config.JudgeExecutorDocker:
+		return NewDockerExecutor(ctx, cfg, logger)
+	case config.JudgeExecutorKubernetes:
+		return NewKubernetesJobExecutor(ctx, cfg, logger)
+	default:
+		return nil, fmt.Errorf("unsupported JUDGE_EXECUTOR %q", cfg.Executor)
+	}
+}
+
 func Run(ctx context.Context, deps *app.Dependencies) error {
-	executor, err := NewDockerExecutor(ctx, deps.Config.Judge, deps.Logger)
+	executor, err := newExecutor(ctx, deps.Config.Judge, deps.Logger)
 	if err != nil {
 		return fmt.Errorf("initialize sandbox executor: %w", err)
 	}
 	defer func() {
 		if err := executor.Close(); err != nil {
-			deps.Logger.Error("close Docker client", "err", err)
+			deps.Logger.Error("close sandbox executor", "err", err)
 		}
 	}()
 	queue := redisx.NewJudgeQueue(deps.Redis)

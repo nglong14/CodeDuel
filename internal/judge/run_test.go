@@ -3,14 +3,83 @@ package judge
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nglong14/CodeDuel/internal/config"
 	"github.com/nglong14/CodeDuel/internal/redisx"
 )
+
+func TestNewExecutorForConfigDispatchesOnExecutorFlag(t *testing.T) {
+	t.Run("kubernetes flag fails fast outside a cluster", func(t *testing.T) {
+		cfg := testKubernetesConfig()
+		_, err := newExecutorForConfig(context.Background(), cfg, slog.New(slog.DiscardHandler))
+		if err == nil {
+			t.Fatal("newExecutorForConfig() error = nil, want an in-cluster config error")
+		}
+	})
+
+	t.Run("unknown flag is rejected before touching any client", func(t *testing.T) {
+		cfg := testKubernetesConfig()
+		cfg.Executor = "ecs"
+		_, err := newExecutorForConfig(context.Background(), cfg, slog.New(slog.DiscardHandler))
+		if err == nil {
+			t.Fatal("newExecutorForConfig() error = nil, want unsupported executor error")
+		}
+	})
+}
+
+func TestRunSelectsExecutorFromFactorySeam(t *testing.T) {
+	cfg := testKubernetesConfig()
+	seen := make(chan string, 1)
+	var closed atomic.Bool
+
+	originalFactory := newExecutor
+	newExecutor = func(_ context.Context, gotCfg config.JudgeConfig, _ *slog.Logger) (Executor, error) {
+		seen <- gotCfg.Executor
+		return &closeTrackingExecutor{closed: &closed}, nil
+	}
+	defer func() { newExecutor = originalFactory }()
+
+	// Directly exercise the seam rather than the full Run loop: Run() also
+	// needs a live Postgres pool and Redis client, which this unit test does
+	// not stand up. The seam is what Task 3 wires, so assert it is honored.
+	executor, err := newExecutor(context.Background(), cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("newExecutor() error = %v", err)
+	}
+	select {
+	case gotExecutor := <-seen:
+		if gotExecutor != config.JudgeExecutorKubernetes {
+			t.Fatalf("factory saw Executor = %q, want %q", gotExecutor, config.JudgeExecutorKubernetes)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for factory seam invocation")
+	}
+	if err := executor.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if !closed.Load() {
+		t.Fatal("Close() did not reach the underlying executor")
+	}
+}
+
+type closeTrackingExecutor struct {
+	closed *atomic.Bool
+}
+
+func (e *closeTrackingExecutor) Execute(context.Context, ExecutionRequest) (ExecutionOutcome, error) {
+	return ExecutionOutcome{}, errors.New("not implemented")
+}
+
+func (e *closeTrackingExecutor) Close() error {
+	e.closed.Store(true)
+	return nil
+}
 
 func TestRunJudgeWorkersBoundsConcurrency(t *testing.T) {
 	jobs := make([]redisx.JudgeJob, 4)

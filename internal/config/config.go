@@ -53,33 +53,33 @@ type AuthConfig struct {
 }
 
 const (
-	JudgeExecutorDocker = "docker"
+	JudgeExecutorDocker     = "docker"
 	JudgeExecutorKubernetes = "kubernetes"
 )
 
 type JudgeConfig struct {
-	Concurrency     int
-	MaxCodeBytes    int64
-	MaxOutputBytes  int64
-	CompileTimeout  time.Duration
-	TestTimeout     time.Duration
-	TotalTimeout    time.Duration
-	CleanupTimeout  time.Duration
-	AttemptLease    time.Duration
-	NanoCPUs        int64
-	MemoryBytes     int64
-	MemorySwapBytes int64
-	PIDLimit        int64
-	WorkspaceBytes  int64
-	TmpfsBytes      int64
-	PythonImage     string
-	CPPImage        string
-	JavaImage       string
-	SandboxRuntime  string
-	Executor string
-	K8sNamespace string
-	K8sRuntimeClass string
-	K8sNodeSelector map[string]string
+	Concurrency        int
+	MaxCodeBytes       int64
+	MaxOutputBytes     int64
+	CompileTimeout     time.Duration
+	TestTimeout        time.Duration
+	TotalTimeout       time.Duration
+	CleanupTimeout     time.Duration
+	AttemptLease       time.Duration
+	NanoCPUs           int64
+	MemoryBytes        int64
+	MemorySwapBytes    int64
+	PIDLimit           int64
+	WorkspaceBytes     int64
+	TmpfsBytes         int64
+	PythonImage        string
+	CPPImage           string
+	JavaImage          string
+	SandboxRuntime     string
+	Executor           string
+	K8sNamespace       string
+	K8sRuntimeClass    string
+	K8sNodeSelector    map[string]string
 	K8sTolerationKey   string
 	K8sTolerationValue string
 }

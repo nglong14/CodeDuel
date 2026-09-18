@@ -22,9 +22,9 @@ import (
 
 const (
 	sandboxContainerName = "sandbox"
-	sandboxHarnessPath = "/opt/codeduel/harness"
-	sandboxPayloadEnv = "CODEDUEL_PAYLOAD"
-	jobNameLabel = "batch.kubernetes.io/job-name"
+	sandboxHarnessPath   = "/opt/codeduel/harness"
+	sandboxPayloadEnv    = "CODEDUEL_PAYLOAD"
+	jobNameLabel         = "batch.kubernetes.io/job-name"
 
 	reasonDeadlineExceeded = "DeadlineExceeded"
 	reasonOOMKilled        = "OOMKilled"
@@ -239,7 +239,7 @@ func (e *KubernetesJobExecutor) jobDeadlineExceeded(ctx context.Context, name st
 type podClassification struct {
 	outcome  ExecutionOutcome
 	terminal bool
-	pullErr string
+	pullErr  string
 }
 
 func classifyPod(pod *corev1.Pod) podClassification {
@@ -442,7 +442,7 @@ func (e *KubernetesJobExecutor) cleanupStaleJobs(ctx context.Context) error {
 	propagation := metav1.DeletePropagationBackground
 	for index := range jobs.Items {
 		job := &jobs.Items[index]
-		if job.CreationTimestamp.Time.After(cutoff) {
+		if job.CreationTimestamp.After(cutoff) {
 			continue
 		}
 		if err := e.client.BatchV1().Jobs(e.namespace).Delete(ctx, job.Name, metav1.DeleteOptions{
@@ -457,7 +457,7 @@ func (e *KubernetesJobExecutor) cleanupStaleJobs(ctx context.Context) error {
 func encodePayload(request ExecutionRequest) (string, error) {
 	tests := make([]sandboxTestCase, len(request.Tests))
 	for index, test := range request.Tests {
-		tests[index] = sandboxTestCase{Input: test.Input, Expected: test.Expected}
+		tests[index] = sandboxTestCase(test)
 	}
 	payload := sandboxPayload{
 		Language:       string(request.Language),
