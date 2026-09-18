@@ -274,6 +274,8 @@ func (f executorFunc) Execute(ctx context.Context, request ExecutionRequest) (Ex
 	return f(ctx, request)
 }
 
+func (f executorFunc) Close() error { return nil }
+
 func newTestJudgeService(
 	queue judgeQueue,
 	store submissionStore,

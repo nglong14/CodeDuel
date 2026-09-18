@@ -103,6 +103,7 @@ type ExecutionOutcome struct {
 
 type Executor interface {
 	Execute(context.Context, ExecutionRequest) (ExecutionOutcome, error)
+	Close() error
 }
 
 func limitsFromConfig(cfg config.JudgeConfig) Limits {
