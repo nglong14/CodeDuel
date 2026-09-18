@@ -1,0 +1,11 @@
+# Cluster-scoped: created once, shared by both the dev and prod namespaces.
+# Only pods that request it (Judge's sandbox Jobs) run under runsc; every other
+# workload uses the default OCI runtime.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+# Sandbox Job pods must additionally carry the toleration + nodeSelector that
+# route them to the tainted gVisor node group (set on the pod spec itself,
+# not here, since RuntimeClass has no node-placement fields of its own).

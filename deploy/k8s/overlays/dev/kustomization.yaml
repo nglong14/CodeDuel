@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: codeduel-dev
+
+resources:
+  - ../../base
+
+# APP_ENV, JUDGE_CONCURRENCY, JUDGE_K8S_NAMESPACE differ from base; merged
+# into the same codeduel-config key set base's Deployments already reference.
+configMapGenerator:
+  - name: codeduel-config
+    behavior: merge
+    envs:
+      - config.env
+
+patches:
+  - path: ingress-host.yaml
+
+# Pinned by CI to the commit SHA that was actually built and pushed to ECR;
+# `latest` here is a local-render placeholder only.
+images:
+  - name: codeduel
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/codeduel
+    newTag: latest
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: dev
+    includeSelectors: false

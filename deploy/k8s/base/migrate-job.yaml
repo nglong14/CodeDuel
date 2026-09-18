@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  labels:
+    app.kubernetes.io/name: migrate
+    app.kubernetes.io/part-of: codeduel
+spec:
+  # One-off per deploy: overlays regenerate this Job's name via a config hash
+  # (see kustomization.yaml's configMapGenerator behavior) so re-applying the
+  # same manifest with an unchanged image still runs migrations again is
+  # avoided by relying on backoffLimit + ttlSecondsAfterFinished to clean up,
+  # and on the migration SQL itself being idempotent (embedded, versioned).
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: migrate
+          image: codeduel
+          args: ["--role=migrate", "--direction=up"]
+          envFrom:
+            - configMapRef:
+                name: codeduel-config
+            - secretRef:
+                name: codeduel-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault

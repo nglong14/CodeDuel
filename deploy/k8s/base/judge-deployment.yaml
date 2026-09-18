@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: judge
+  labels:
+    app.kubernetes.io/name: judge
+    app.kubernetes.io/part-of: codeduel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: judge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: judge
+    spec:
+      # Judge itself always runs on the app node group, never the tainted
+      # gVisor node group; only the submission Job pods it creates carry the
+      # gVisor toleration/nodeSelector/RuntimeClass. No affinity is set here
+      # deliberately: the app node group carries no matching taint, so the
+      # scheduler places Judge there by default.
+      serviceAccountName: judge
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: judge
+          image: codeduel
+          args: ["--role=judge"]
+          envFrom:
+            - configMapRef:
+                name: codeduel-config
+            - secretRef:
+                name: codeduel-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault

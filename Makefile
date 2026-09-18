@@ -9,7 +9,7 @@ USER_ID ?= 11111111-1111-1111-1111-111111111111
 
 DEV_SEED_FILE := deploy/dev/seed_users.sql
 
-.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset
+.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check k8s-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset
 
 help:
 	@echo "CodeDuel targets:"
@@ -24,6 +24,7 @@ help:
 	@echo "  make build         Build codeduel binary"
 	@echo "  make lint          Run golangci-lint"
 	@echo "  make compose-check Validate both Compose files"
+	@echo "  make k8s-check     Render both Kustomize overlays (deploy/k8s/overlays/{dev,prod})"
 	@echo "  make test-integration  Start infra and run Redis/PostgreSQL integration tests"
 	@echo "  make test-integration-run  Run integration tests only (services must already exist)"
 	@echo "  make sandbox-images  Build pinned Judge sandbox images"
@@ -75,6 +76,10 @@ lint:
 compose-check:
 	docker compose -f $(COMPOSE_FILE) config --quiet
 	docker compose -f $(COMPOSE_JUDGE_FILE) config --quiet
+
+k8s-check:
+	kubectl kustomize deploy/k8s/overlays/dev >/dev/null
+	kubectl kustomize deploy/k8s/overlays/prod >/dev/null
 
 test-integration: up-infra
 	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/infrastructure/... ./internal/auth/... ./internal/redisx/... ./internal/match/... ./internal/submission/... ./internal/judge/... ./internal/reaper/... ./internal/gateway/...
