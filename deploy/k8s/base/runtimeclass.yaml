@@ -6,6 +6,4 @@ kind: RuntimeClass
 metadata:
   name: gvisor
 handler: runsc
-# Sandbox Job pods must additionally carry the toleration + nodeSelector that
-# route them to the tainted gVisor node group (set on the pod spec itself,
-# not here, since RuntimeClass has no node-placement fields of its own).
+

@@ -15,11 +15,6 @@ spec:
       labels:
         app.kubernetes.io/name: gateway
     spec:
-      # terminationGracePeriodSeconds + preStop cover registry.CloseAll and the
-      # 10s WebSocket drain in gateway.Run (connectionDrainTimeout); the ALB
-      # target group's deregistration delay (set via Ingress annotation on the
-      # Service, >=60s) must exceed this so in-flight sockets are not cut by
-      # the load balancer before the pod finishes draining.
       terminationGracePeriodSeconds: 20
       containers:
         - name: gateway
@@ -36,11 +31,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                # Give in-flight requests/WebSocket drain a head start before
-                # the container receives SIGTERM.
                 command: ["/bin/sh", "-c", "sleep 5"]
-          # Start period covers the PostgreSQL/Redis pings readyz performs;
-          # failureThreshold * periodSeconds must exceed dependency startup.
           livenessProbe:
             httpGet:
               path: /healthz
@@ -83,10 +74,6 @@ metadata:
   labels:
     app.kubernetes.io/name: gateway
   annotations:
-    # ALB target group deregistration delay: must be >= the drain window
-    # (terminationGracePeriodSeconds + connectionDrainTimeout) so the load
-    # balancer stops sending new requests to a pod before it finishes closing
-    # existing WebSocket connections.
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=60
 spec:
   selector:

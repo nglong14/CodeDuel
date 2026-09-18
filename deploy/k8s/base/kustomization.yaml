@@ -20,9 +20,6 @@ configMapGenerator:
     envs:
       - config.env
 
-# JUDGE_K8S_NAMESPACE must equal the namespace above; RuntimeClass is
-# cluster-scoped and intentionally left outside the namespace transform by
-# Kustomize's own convention (cluster-scoped resources are never namespaced).
 images:
   - name: codeduel
     newName: codeduel
