@@ -1,6 +1,7 @@
 import base64
 import json
 from typing import NamedTuple
+
 import pulumi
 import pulumi_aws as aws
 
@@ -12,7 +13,13 @@ class NodeGroupResources(NamedTuple):
     gvisor_launch_template: aws.ec2.LaunchTemplate
 
 
-GVISOR_USERDATA_SCRIPT = """#!/bin/bash
+GVISOR_USERDATA_SCRIPT = """MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+--==BOUNDARY==
+Content-Type: text/x-shellscript; charset="us-ascii"
+
+#!/bin/bash
 set -euo pipefail
 ARCH=$(uname -m)
 URL="https://storage.googleapis.com/gvisor/releases/release/latest/${ARCH}"
@@ -26,6 +33,8 @@ cat << 'EOF' > /etc/containerd/conf.d/gvisor.toml
   runtime_type = "io.containerd.runsc.v1"
 EOF
 systemctl restart containerd
+
+--==BOUNDARY==--
 """
 
 

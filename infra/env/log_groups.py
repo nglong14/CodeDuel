@@ -8,8 +8,8 @@ Manages application log streams for:
 """
 
 from typing import NamedTuple
-import pulumi_aws as aws
 
+import pulumi_aws as aws
 
 ROLES = ["gateway", "match", "judge", "reaper"]
 

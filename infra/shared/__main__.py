@@ -12,16 +12,16 @@ Orchestrates provisioning of:
 """
 
 import pulumi
-from vpc import create_vpc
-from security_groups import create_security_groups
+from alb_controller import create_alb_controller_irsa
+from certificate import create_certificate
 from ecr import create_ecr_repositories
 from eks import create_eks_cluster
+from elasticache import create_elasticache_cluster
+from monitoring import create_monitoring
 from nodegroups import create_nodegroups
 from rds import create_rds_instance
-from elasticache import create_elasticache_cluster
-from alb_controller import create_alb_controller_irsa
-from monitoring import create_monitoring
-
+from security_groups import attach_cluster_to_app_node_rules, create_security_groups
+from vpc import create_vpc
 
 vpc_res = create_vpc()
 subnet_ids = [subnet.id for subnet in vpc_res.subnets]
@@ -31,6 +31,12 @@ sg_res = create_security_groups(vpc_id=vpc_res.vpc.id)
 ecr_res = create_ecr_repositories()
 
 eks_res = create_eks_cluster(subnet_ids=subnet_ids)
+
+# Allow EKS cluster control plane full access to app nodes (kubelet, logs, webhooks)
+attach_cluster_to_app_node_rules(
+    app_node_sg_id=sg_res.app_node_sg.id,
+    cluster_sg_id=eks_res.cluster.vpc_config.cluster_security_group_id,
+)
 
 nodegroups_res = create_nodegroups(
     cluster_name=eks_res.cluster.name,
@@ -70,6 +76,7 @@ pulumi.export("elasticache_sg_id", sg_res.elasticache_sg.id)
 
 pulumi.export("eks_cluster_name", eks_res.cluster.name)
 pulumi.export("eks_cluster_endpoint", eks_res.cluster.endpoint)
+pulumi.export("eks_cluster_security_group_id", eks_res.cluster.vpc_config.cluster_security_group_id)
 pulumi.export(
     "eks_cluster_certificate_authority_data",
     eks_res.cluster.certificate_authorities[0].data,
@@ -91,5 +98,11 @@ pulumi.export(
     "ecr_repository_urls",
     {name: repo.repository_url for name, repo in ecr_res.repositories.items()},
 )
+shared_config = pulumi.Config("codeduel-shared")
+domain_name = shared_config.get("domain_name")
+zone_id = shared_config.get("route53_zone_id")
+cert_res = create_certificate(domain_name=domain_name, zone_id=zone_id)
+
 pulumi.export("alb_controller_role_arn", alb_irsa_res.role.arn)
 pulumi.export("budget_id", monitoring_res.budget.id)
+pulumi.export("acm_certificate_arn", cert_res.certificate_arn)

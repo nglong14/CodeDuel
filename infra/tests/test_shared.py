@@ -14,8 +14,9 @@ Asserts all architectural invariants without contacting AWS:
 
 import sys
 from pathlib import Path
-import pytest
+
 import pulumi
+import pytest
 
 SHARED_DIR = str(Path(__file__).parent.parent / "shared")
 TESTS_DIR = str(Path(__file__).parent)
@@ -26,15 +27,15 @@ for d in [SHARED_DIR, TESTS_DIR]:
 
 
 # Import modules under test
-from vpc import create_vpc
-from security_groups import create_security_groups
+from alb_controller import create_alb_controller_irsa
 from ecr import create_ecr_repositories
 from eks import create_eks_cluster
+from elasticache import create_elasticache_cluster
+from monitoring import create_monitoring
 from nodegroups import create_nodegroups
 from rds import create_rds_instance
-from elasticache import create_elasticache_cluster
-from alb_controller import create_alb_controller_irsa
-from monitoring import create_monitoring
+from security_groups import create_security_groups
+from vpc import create_vpc
 
 
 @pytest.fixture(scope="module")
@@ -165,9 +166,9 @@ def test_gvisor_node_group_taints_and_labels(shared_infra):
         # Check taint
         assert len(taints) == 1
         taint = taints[0]
-        key = taint.get("key") if isinstance(taint, dict) else getattr(taint, "key")
-        value = taint.get("value") if isinstance(taint, dict) else getattr(taint, "value")
-        effect = taint.get("effect") if isinstance(taint, dict) else getattr(taint, "effect")
+        key = taint.get("key") if isinstance(taint, dict) else taint.key
+        value = taint.get("value") if isinstance(taint, dict) else taint.value
+        effect = taint.get("effect") if isinstance(taint, dict) else taint.effect
         assert key == "sandbox"
         assert value == "true"
         assert effect == "NO_SCHEDULE"

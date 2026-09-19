@@ -1,8 +1,8 @@
 """Shared Pytest Configuration and Pulumi Mocks for CodeDuel Infrastructure."""
 
-import os
 import sys
 from pathlib import Path
+
 import pulumi
 
 # Ensure infra/shared is in sys.path for test imports
@@ -11,8 +11,11 @@ if SHARED_DIR not in sys.path:
     sys.path.insert(0, SHARED_DIR)
 
 
+from typing import ClassVar
+
+
 class CodeDuelMocks(pulumi.runtime.Mocks):
-    created_resources: list[str] = []
+    created_resources: ClassVar[list[str]] = []
 
     def new_resource(self, args: pulumi.runtime.MockResourceArgs):
         self.created_resources.append(args.typ)
@@ -60,10 +63,7 @@ class CodeDuelMocks(pulumi.runtime.Mocks):
         elif args.typ == "aws:eks/nodeGroup:NodeGroup":
             outputs["id"] = f"ng-{args.name}"
             outputs["arn"] = f"arn:aws:eks:us-east-1:123456789012:nodegroup/codeduel/{args.name}"
-        elif args.typ == "aws:rds/subnetGroup:SubnetGroup":
-            outputs["id"] = args.name
-            outputs["name"] = args.name
-        elif args.typ == "aws:rds/parameterGroup:ParameterGroup":
+        elif args.typ == "aws:rds/subnetGroup:SubnetGroup" or args.typ == "aws:rds/parameterGroup:ParameterGroup":
             outputs["id"] = args.name
             outputs["name"] = args.name
         elif args.typ == "aws:rds/instance:Instance":
@@ -72,10 +72,7 @@ class CodeDuelMocks(pulumi.runtime.Mocks):
             outputs["address"] = "codeduel-postgres.c123456.us-east-1.rds.amazonaws.com"
             outputs["port"] = 5432
             outputs["username"] = "codeduel_admin"
-        elif args.typ == "aws:elasticache/subnetGroup:SubnetGroup":
-            outputs["id"] = args.name
-            outputs["name"] = args.name
-        elif args.typ == "aws:elasticache/parameterGroup:ParameterGroup":
+        elif args.typ == "aws:elasticache/subnetGroup:SubnetGroup" or args.typ == "aws:elasticache/parameterGroup:ParameterGroup":
             outputs["id"] = args.name
             outputs["name"] = args.name
         elif args.typ == "aws:elasticache/cluster:Cluster":

@@ -4,6 +4,7 @@ Reads outputs exported by the 'codeduel-shared' project.
 """
 
 from typing import NamedTuple
+
 import pulumi
 
 

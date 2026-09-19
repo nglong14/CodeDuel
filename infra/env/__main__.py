@@ -9,11 +9,10 @@ Orchestrates provisioning of:
 """
 
 import pulumi
-from stack_refs import load_shared_stack_outputs
-from database import configure_environment_database
+from database import configure_environment_database, create_database_bootstrap_job
 from k8s_secrets import configure_k8s_secrets
 from log_groups import create_environment_log_groups
-
+from stack_refs import load_shared_stack_outputs
 
 # 1. Read Stack Configuration
 config = pulumi.Config()
@@ -56,13 +55,27 @@ k8s_res = configure_k8s_secrets(
     redis_url=redis_url,
 )
 
-# 6. CloudWatch Log Groups
+# 6. Execute in-cluster Database & User Bootstrap Job (on app nodes)
+db_bootstrap_job = create_database_bootstrap_job(
+    env_name=env_name,
+    db_name=db_name,
+    db_user=db_user,
+    db_password=db_res.db_password.result,
+    rds_address=shared_outputs.rds_address,
+    rds_port=shared_outputs.rds_port,
+    rds_master_username=shared_outputs.rds_master_username,
+    rds_master_password=shared_outputs.rds_master_password,
+    namespace=k8s_res.namespace.metadata.name,
+    k8s_provider=k8s_res.provider,
+)
+
+# 7. CloudWatch Log Groups
 log_res = create_environment_log_groups(
     env_name=env_name,
     retention_days=log_retention_days,
 )
 
-# 7. Export Stack Outputs
+# 8. Export Stack Outputs
 pulumi.export("env", env_name)
 pulumi.export("app_env", app_env)
 pulumi.export("judge_concurrency", judge_concurrency)

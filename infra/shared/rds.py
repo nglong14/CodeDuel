@@ -9,6 +9,7 @@ Key architectural constraints:
 """
 
 from typing import NamedTuple
+
 import pulumi
 import pulumi_aws as aws
 import pulumi_random as random

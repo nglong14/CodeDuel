@@ -139,6 +139,9 @@ INFRA_DIR := infra
 INFRA_VENV := $(INFRA_DIR)/.venv
 INFRA_PIP := $(INFRA_VENV)/bin/pip
 INFRA_PYTEST := $(INFRA_VENV)/bin/pytest
+INFRA_RUFF := $(INFRA_VENV)/bin/ruff
+
+.PHONY: infra-venv infra-deps infra-test infra-lint infra-preview-shared infra-preview-dev infra-preview-prod infra-up-shared infra-up-dev infra-up-prod
 
 infra-venv:
 	@if [ ! -d "$(INFRA_VENV)" ]; then python3 -m venv $(INFRA_VENV); fi
@@ -149,4 +152,25 @@ infra-deps: infra-venv
 
 infra-test: infra-venv
 	$(INFRA_PYTEST) -v $(INFRA_DIR)/tests
+
+infra-lint: infra-venv
+	$(INFRA_RUFF) check $(INFRA_DIR)
+
+infra-preview-shared: infra-venv
+	cd $(INFRA_DIR)/shared && pulumi preview --diff
+
+infra-preview-dev: infra-venv
+	cd $(INFRA_DIR)/env && pulumi preview --stack dev --diff
+
+infra-preview-prod: infra-venv
+	cd $(INFRA_DIR)/env && pulumi preview --stack prod --diff
+
+infra-up-shared: infra-venv
+	cd $(INFRA_DIR)/shared && pulumi up
+
+infra-up-dev: infra-venv
+	cd $(INFRA_DIR)/env && pulumi up --stack dev
+
+infra-up-prod: infra-venv
+	cd $(INFRA_DIR)/env && pulumi up --stack prod
 

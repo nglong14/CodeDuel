@@ -9,6 +9,7 @@ Key architectural constraints:
 """
 
 from typing import NamedTuple
+
 import pulumi
 import pulumi_aws as aws
 
@@ -185,4 +186,25 @@ def create_security_groups(vpc_id: pulumi.Input[str]) -> SecurityGroupResources:
         gvisor_node_sg=gvisor_node_sg,
         rds_sg=rds_sg,
         elasticache_sg=elasticache_sg,
+    )
+
+
+def attach_cluster_to_app_node_rules(
+    app_node_sg_id: pulumi.Input[str],
+    cluster_sg_id: pulumi.Input[str],
+) -> aws.ec2.SecurityGroupRule:
+    """Allow full inbound communication from EKS control plane security group to app nodes.
+
+    Required for kubelet communication (port 10250), kubectl logs, kubectl exec,
+    and controller admission webhooks.
+    """
+    return aws.ec2.SecurityGroupRule(
+        "app-node-cluster-control-plane-ingress",
+        type="ingress",
+        security_group_id=app_node_sg_id,
+        source_security_group_id=cluster_sg_id,
+        protocol="-1",
+        from_port=0,
+        to_port=0,
+        description="Allow full traffic from EKS control plane security group to app nodes",
     )

@@ -8,6 +8,7 @@ Provisions:
 
 import json
 from typing import NamedTuple
+
 import pulumi
 import pulumi_aws as aws
 
@@ -63,11 +64,35 @@ def create_eks_cluster(subnet_ids: list[pulumi.Input[str]]) -> EksResources:
             endpoint_public_access=True,
             endpoint_private_access=True,
         ),
+        access_config=aws.eks.ClusterAccessConfigArgs(
+            authentication_mode="API_AND_CONFIG_MAP",
+            bootstrap_cluster_creator_admin_permissions=True,
+        ),
         tags={
             "Name": "codeduel-cluster",
             "Project": "codeduel",
         },
     )
+
+    shared_config = pulumi.Config("codeduel-shared")
+    admin_principal_arn = shared_config.get("admin_principal_arn")
+    if admin_principal_arn:
+        admin_access_entry = aws.eks.AccessEntry(
+            "codeduel-eks-admin-access-entry",
+            cluster_name=cluster.name,
+            principal_arn=admin_principal_arn,
+            type="STANDARD",
+        )
+        aws.eks.AccessPolicyAssociation(
+            "codeduel-eks-admin-policy-association",
+            cluster_name=cluster.name,
+            principal_arn=admin_principal_arn,
+            policy_arn="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+            access_scope=aws.eks.AccessPolicyAssociationAccessScopeArgs(
+                type="cluster",
+            ),
+            opts=pulumi.ResourceOptions(depends_on=[admin_access_entry]),
+        )
 
     oidc_provider = aws.iam.OpenIdConnectProvider(
         "codeduel-eks-oidc-provider",

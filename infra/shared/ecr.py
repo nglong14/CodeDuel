@@ -9,6 +9,7 @@ Manages container image registries for:
 
 import json
 from typing import NamedTuple
+
 import pulumi_aws as aws
 
 

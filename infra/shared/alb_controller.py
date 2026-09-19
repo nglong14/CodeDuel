@@ -8,6 +8,7 @@ Provisions:
 
 import json
 from typing import NamedTuple
+
 import pulumi
 import pulumi_aws as aws
 
@@ -226,3 +227,41 @@ def create_alb_controller_irsa(
     )
 
     return AlbControllerResources(role=role, policy=policy)
+
+
+def deploy_alb_controller(
+    cluster_name: pulumi.Input[str],
+    vpc_id: pulumi.Input[str],
+    role_arn: pulumi.Input[str],
+    k8s_provider: pulumi.Input,
+    region: str = "us-east-1",
+):
+    """Deploy AWS Load Balancer Controller Helm chart into kube-system namespace.
+
+    Binds the controller to the IAM role via IRSA so it can provision ALBs for Ingress.
+    """
+    import pulumi_kubernetes as k8s
+
+    return k8s.helm.v3.Release(
+        "aws-load-balancer-controller",
+        name="aws-load-balancer-controller",
+        chart="aws-load-balancer-controller",
+        version="1.8.1",
+        repository_opts=k8s.helm.v3.RepositoryOptsArgs(
+            repo="https://aws.github.io/eks-charts",
+        ),
+        namespace="kube-system",
+        values={
+            "clusterName": cluster_name,
+            "region": region,
+            "vpcId": vpc_id,
+            "serviceAccount": {
+                "create": True,
+                "name": "aws-load-balancer-controller",
+                "annotations": {
+                    "eks.amazonaws.com/role-arn": role_arn,
+                },
+            },
+        },
+        opts=pulumi.ResourceOptions(provider=k8s_provider),
+    )

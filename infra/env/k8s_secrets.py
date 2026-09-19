@@ -9,6 +9,7 @@ Manages:
 
 import json
 from typing import NamedTuple
+
 import pulumi
 import pulumi_kubernetes as k8s
 import pulumi_random as random

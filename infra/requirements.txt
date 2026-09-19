@@ -4,3 +4,4 @@ pulumi-kubernetes>=4.13.0,<5.0.0
 pulumi-random>=4.16.0,<5.0.0
 pytest>=8.2.0
 pytest-asyncio>=0.23.0
+ruff>=0.5.0
