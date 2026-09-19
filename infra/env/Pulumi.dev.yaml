@@ -1,0 +1,10 @@
+config:
+  aws:region: us-east-1
+  codeduel-env:env: dev
+  codeduel-env:redis_db_index: 1
+  codeduel-env:db_name: codeduel_dev
+  codeduel-env:db_user: codeduel_dev
+  codeduel-env:app_env: development
+  codeduel-env:judge_concurrency: 1
+  codeduel-env:log_retention_days: 7
+  codeduel-env:shared_stack_ref: codeduel-shared/shared

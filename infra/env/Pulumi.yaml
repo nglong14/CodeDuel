@@ -1,0 +1,6 @@
+name: codeduel-env
+runtime:
+  name: python
+  options:
+    virtualenv: ../.venv
+description: CodeDuel per-environment stacks (dev and prod)
