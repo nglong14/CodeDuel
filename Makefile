@@ -9,7 +9,7 @@ USER_ID ?= 11111111-1111-1111-1111-111111111111
 
 DEV_SEED_FILE := deploy/dev/seed_users.sql
 
-.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check k8s-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset
+.PHONY: help up up-infra up-judge down down-judge logs logs-judge deps build lint compose-check k8s-check test-integration test-integration-run sandbox-images test-docker-integration run-gateway run-match run-judge run-reaper run-cli migrate migrate-down seed-dev reset infra-venv infra-deps infra-test
 
 help:
 	@echo "CodeDuel targets:"
@@ -38,6 +38,8 @@ help:
 	@echo "  make migrate-down  Roll back database migrations"
 	@echo "  make seed-dev      Load development-only fixture users (Alice/Bob)"
 	@echo "  make reset         Destructively reset development data (removes volumes)"
+	@echo "  make infra-deps    Install Pulumi Python dependencies in infra/.venv"
+	@echo "  make infra-test    Run Pulumi mock unit tests in infra/tests"
 
 up:
 	docker compose -f $(COMPOSE_FILE) up -d --wait
@@ -132,3 +134,19 @@ seed-dev:
 reset:
 	docker compose -f $(COMPOSE_FILE) down -v --remove-orphans
 	docker compose -f $(COMPOSE_JUDGE_FILE) down -v --remove-orphans
+
+INFRA_DIR := infra
+INFRA_VENV := $(INFRA_DIR)/.venv
+INFRA_PIP := $(INFRA_VENV)/bin/pip
+INFRA_PYTEST := $(INFRA_VENV)/bin/pytest
+
+infra-venv:
+	@if [ ! -d "$(INFRA_VENV)" ]; then python3 -m venv $(INFRA_VENV); fi
+
+infra-deps: infra-venv
+	$(INFRA_PIP) install --upgrade pip
+	$(INFRA_PIP) install -r $(INFRA_DIR)/requirements.txt
+
+infra-test: infra-venv
+	$(INFRA_PYTEST) -v $(INFRA_DIR)/tests
+

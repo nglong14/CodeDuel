@@ -1,0 +1,6 @@
+name: codeduel-shared
+runtime:
+  name: python
+  options:
+    virtualenv: ../.venv
+description: CodeDuel shared infrastructure (VPC, EKS, Node Groups, RDS, ElastiCache, ECR, IAM, Budgets)

@@ -1,0 +1,95 @@
+"""CodeDuel Shared Infrastructure Entry Point.
+
+Orchestrates provisioning of:
+- VPC & public subnets (strictly no NAT gateway)
+- Least-privilege Security Groups
+- ECR Repositories (codeduel + sandboxes)
+- EKS Cluster & OIDC Provider
+- Node Groups (App Graviton arm64 + gVisor tainted x86_64)
+- RDS PostgreSQL & ElastiCache Redis
+- AWS Load Balancer Controller IRSA
+- CloudWatch & AWS Budget Alarms
+"""
+
+import pulumi
+from vpc import create_vpc
+from security_groups import create_security_groups
+from ecr import create_ecr_repositories
+from eks import create_eks_cluster
+from nodegroups import create_nodegroups
+from rds import create_rds_instance
+from elasticache import create_elasticache_cluster
+from alb_controller import create_alb_controller_irsa
+from monitoring import create_monitoring
+
+
+vpc_res = create_vpc()
+subnet_ids = [subnet.id for subnet in vpc_res.subnets]
+
+sg_res = create_security_groups(vpc_id=vpc_res.vpc.id)
+
+ecr_res = create_ecr_repositories()
+
+eks_res = create_eks_cluster(subnet_ids=subnet_ids)
+
+nodegroups_res = create_nodegroups(
+    cluster_name=eks_res.cluster.name,
+    subnet_ids=subnet_ids,
+    app_node_sg_id=sg_res.app_node_sg.id,
+    gvisor_node_sg_id=sg_res.gvisor_node_sg.id,
+)
+
+rds_res = create_rds_instance(
+    subnet_ids=subnet_ids,
+    rds_sg_id=sg_res.rds_sg.id,
+)
+
+cache_res = create_elasticache_cluster(
+    subnet_ids=subnet_ids,
+    elasticache_sg_id=sg_res.elasticache_sg.id,
+)
+
+alb_irsa_res = create_alb_controller_irsa(
+    oidc_provider_arn=eks_res.oidc_provider.arn,
+    oidc_provider_url=eks_res.oidc_provider.url,
+)
+
+monitoring_res = create_monitoring(
+    rds_instance_id=rds_res.instance.identifier,
+    cache_cluster_id=cache_res.cluster.cluster_id,
+)
+
+pulumi.export("vpc_id", vpc_res.vpc.id)
+pulumi.export("public_subnet_ids", subnet_ids)
+
+pulumi.export("alb_sg_id", sg_res.alb_sg.id)
+pulumi.export("app_node_sg_id", sg_res.app_node_sg.id)
+pulumi.export("gvisor_node_sg_id", sg_res.gvisor_node_sg.id)
+pulumi.export("rds_sg_id", sg_res.rds_sg.id)
+pulumi.export("elasticache_sg_id", sg_res.elasticache_sg.id)
+
+pulumi.export("eks_cluster_name", eks_res.cluster.name)
+pulumi.export("eks_cluster_endpoint", eks_res.cluster.endpoint)
+pulumi.export(
+    "eks_cluster_certificate_authority_data",
+    eks_res.cluster.certificate_authorities[0].data,
+)
+pulumi.export("eks_oidc_provider_arn", eks_res.oidc_provider.arn)
+pulumi.export("eks_oidc_provider_url", eks_res.oidc_provider.url)
+
+pulumi.export("rds_instance_id", rds_res.instance.identifier)
+pulumi.export("rds_address", rds_res.instance.address)
+pulumi.export("rds_port", rds_res.instance.port)
+pulumi.export("rds_master_username", rds_res.instance.username)
+pulumi.export("rds_master_password", pulumi.Output.secret(rds_res.master_password.result))
+
+pulumi.export("elasticache_cluster_id", cache_res.cluster.cluster_id)
+pulumi.export("elasticache_address", cache_res.cluster.cache_nodes[0].address)
+pulumi.export("elasticache_port", cache_res.cluster.port)
+
+pulumi.export(
+    "ecr_repository_urls",
+    {name: repo.repository_url for name, repo in ecr_res.repositories.items()},
+)
+pulumi.export("alb_controller_role_arn", alb_irsa_res.role.arn)
+pulumi.export("budget_id", monitoring_res.budget.id)
