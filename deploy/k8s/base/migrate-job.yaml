@@ -6,11 +6,10 @@ metadata:
     app.kubernetes.io/name: migrate
     app.kubernetes.io/part-of: codeduel
 spec:
-  # One-off per deploy: overlays regenerate this Job's name via a config hash
-  # (see kustomization.yaml's configMapGenerator behavior) so re-applying the
-  # same manifest with an unchanged image still runs migrations again is
-  # avoided by relying on backoffLimit + ttlSecondsAfterFinished to clean up,
-  # and on the migration SQL itself being idempotent (embedded, versioned).
+  # Standalone one-off Job: applied during environment bring-up or pre-deploy
+  # database schema updates, rather than continuously in the main service overlay.
+  # The migration SQL itself is embedded, versioned, and idempotent.
+  # backoffLimit + ttlSecondsAfterFinished ensure clean termination.
   backoffLimit: 2
   ttlSecondsAfterFinished: 300
   template:

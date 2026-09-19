@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-deny-all
+  labels:
+    app.kubernetes.io/name: judge
+    app.kubernetes.io/part-of: codeduel
+spec:
+  # Selects the transient submission Job pods created by Judge.
+  # Untrusted runner code inside the sandbox is completely isolated from the network:
+  # no inbound traffic, and no outbound traffic (cannot reach internal cluster services,
+  # database, cache, or the AWS instance metadata service 169.254.169.254).
+  podSelector:
+    matchLabels:
+      com.codeduel.sandbox: "true"
+  policyTypes:
+    - Ingress
+    - Egress

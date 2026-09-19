@@ -78,8 +78,17 @@ compose-check:
 	docker compose -f $(COMPOSE_JUDGE_FILE) config --quiet
 
 k8s-check:
-	kubectl kustomize deploy/k8s/overlays/dev >/dev/null
-	kubectl kustomize deploy/k8s/overlays/prod >/dev/null
+	@which kubectl >/dev/null || { echo "kubectl not found"; exit 1; }
+	@kubectl kustomize deploy/k8s/overlays/dev > /tmp/dev.rendered.yaml
+	@kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.rendered.yaml
+	@if command -v kubeconform >/dev/null 2>&1; then \
+		kubeconform -strict -summary -ignore-missing-schemas /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml; \
+	elif [ -x "$$(go env GOPATH)/bin/kubeconform" ]; then \
+		"$$(go env GOPATH)/bin/kubeconform" -strict -summary -ignore-missing-schemas /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml; \
+	else \
+		echo "kubeconform not found, rendered YAML syntax check only"; \
+	fi
+	@rm -f /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml
 
 test-integration: up-infra
 	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/infrastructure/... ./internal/auth/... ./internal/redisx/... ./internal/match/... ./internal/submission/... ./internal/judge/... ./internal/reaper/... ./internal/gateway/...

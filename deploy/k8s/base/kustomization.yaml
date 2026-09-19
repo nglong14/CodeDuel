@@ -6,8 +6,7 @@ namespace: codeduel
 resources:
   - namespace.yaml
   - runtimeclass.yaml
-  - secret-placeholder.yaml
-  - migrate-job.yaml
+  - sandbox-networkpolicy.yaml
   - gateway-deployment.yaml
   - match-deployment.yaml
   - reaper-deployment.yaml
