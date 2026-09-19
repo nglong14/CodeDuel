@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: codeduel
+
+resources:
+  - namespace.yaml
+  - runtimeclass.yaml
+  - sandbox-networkpolicy.yaml
+  - gateway-deployment.yaml
+  - match-deployment.yaml
+  - reaper-deployment.yaml
+  - judge-deployment.yaml
+  - judge-rbac.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  - name: codeduel-config
+    envs:
+      - config.env
+
+images:
+  - name: codeduel
+    newName: codeduel
+    newTag: latest
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: codeduel
+    includeSelectors: false

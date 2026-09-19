@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  labels:
+    app.kubernetes.io/name: migrate
+    app.kubernetes.io/part-of: codeduel
+spec:
+  # Standalone one-off Job: applied during environment bring-up or pre-deploy
+  # database schema updates, rather than continuously in the main service overlay.
+  # The migration SQL itself is embedded, versioned, and idempotent.
+  # backoffLimit + ttlSecondsAfterFinished ensure clean termination.
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: migrate
+          image: codeduel
+          args: ["--role=migrate", "--direction=up"]
+          envFrom:
+            - configMapRef:
+                name: codeduel-config
+            - secretRef:
+                name: codeduel-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault

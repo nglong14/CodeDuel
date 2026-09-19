@@ -68,4 +68,27 @@ jobs:
           name: coverage-report
           path: coverage.out
           args: ./...
+
+  k8s-manifests:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # kubectl bundles Kustomize (kubectl kustomize == kustomize build); no
+      # separate kustomize install or live cluster is needed to render.
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Render dev overlay
+        run: kubectl kustomize deploy/k8s/overlays/dev > /tmp/dev.rendered.yaml
+
+      - name: Render prod overlay
+        run: kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.rendered.yaml
+
+      - name: Validate rendered manifests against the Kubernetes OpenAPI schema
+        run: |
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+          "$(go env GOPATH)/bin/kubeconform" -strict -summary -ignore-missing-schemas /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml
+
  
