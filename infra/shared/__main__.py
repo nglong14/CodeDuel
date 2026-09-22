@@ -9,6 +9,7 @@ Orchestrates provisioning of:
 - RDS PostgreSQL & ElastiCache Redis
 - AWS Load Balancer Controller IRSA
 - Fluent Bit log shipping to CloudWatch Logs (IRSA + DaemonSet)
+- GitHub Actions OIDC plan/deploy roles (optional; needs github_repository)
 - CloudWatch & AWS Budget Alarms
 """
 
@@ -24,6 +25,7 @@ from ecr import create_ecr_repositories
 from eks import create_eks_cluster
 from elasticache import create_elasticache_cluster
 from fluent_bit import deploy_fluent_bit
+from github_oidc import create_github_oidc
 from monitoring import create_monitoring
 from nodegroups import create_nodegroups
 from rds import create_rds_instance
@@ -146,7 +148,24 @@ domain_name = shared_config.get("domain_name")
 zone_id = shared_config.get("route53_zone_id")
 cert_res = create_certificate(domain_name=domain_name, zone_id=zone_id)
 
+# GitHub Actions CI/CD roles. Skipped unless the repository is configured, so a
+# laptop-only workflow needs no extra config:
+#   pulumi config set codeduel-shared:github_repository <owner>/CodeDuel
+github_repository = shared_config.get("github_repository")
+github_res = (
+    create_github_oidc(
+        repository=github_repository,
+        cluster_name=eks_res.cluster.name,
+        existing_provider_arn=shared_config.get("github_oidc_provider_arn"),
+    )
+    if github_repository
+    else None
+)
+
 pulumi.export("alb_controller_role_arn", alb_irsa_res.role.arn)
 pulumi.export("fluent_bit_role_arn", fluent_bit_res.role.arn)
 pulumi.export("budget_id", monitoring_res.budget.id)
 pulumi.export("acm_certificate_arn", cert_res.certificate_arn)
+if github_res:
+    pulumi.export("github_plan_role_arn", github_res.plan_role.arn)
+    pulumi.export("github_deploy_role_arn", github_res.deploy_role.arn)
