@@ -47,9 +47,15 @@ def shared_infra():
     eks_res = create_eks_cluster(subnet_ids=subnet_ids)
     ng_res = create_nodegroups(
         cluster_name=eks_res.cluster.name,
+        cluster_endpoint=eks_res.cluster.endpoint,
+        cluster_ca_data=eks_res.cluster.certificate_authorities[0].data,
+        cluster_service_cidr=eks_res.cluster.kubernetes_network_config.apply(
+            lambda cfg: cfg.service_ipv4_cidr
+        ),
         subnet_ids=subnet_ids,
         app_node_sg_id=sg_res.app_node_sg.id,
         gvisor_node_sg_id=sg_res.gvisor_node_sg.id,
+        cluster_security_group_id=eks_res.cluster.vpc_config.cluster_security_group_id,
     )
     rds_res = create_rds_instance(
         subnet_ids=subnet_ids,
@@ -147,14 +153,42 @@ def test_app_node_group_architecture(shared_infra):
     ng = shared_infra["nodegroups"]
 
     def check_app_ng(args):
-        instance_types, ami_type = args
-        assert instance_types == ["t4g.small"], "App node group must use t4g.small"
-        assert "ARM_64" in ami_type, "App node group must use ARM64 architecture"
+        instance_type, ami_type = args
+        assert instance_type == "t4g.small", "App node group must use t4g.small"
+        assert ami_type is not None and "ARM_64" in ami_type, (
+            "App node group must use ARM64 architecture"
+        )
 
     return pulumi.Output.all(
-        ng.app_node_group.instance_types,
+        ng.app_launch_template.instance_type,
         ng.app_node_group.ami_type,
     ).apply(check_app_ng)
+
+
+@pulumi.runtime.test
+def test_app_launch_template_carries_app_node_sg(shared_infra):
+    """Regression test: a managed NodeGroup with no launch template only gets
+
+    the EKS-managed cluster security group attached to its instances, not
+    app_node_sg_id. Without the launch template supplying it explicitly, the
+    RDS/ElastiCache security group rules that allow traffic "from
+    app_node_sg" never match, so app pods can never reach the database or
+    cache (connections are silently dropped, not rejected).
+    """
+    ng = shared_infra["nodegroups"]
+    sg = shared_infra["sg"]
+
+    def check_sg_ids(args):
+        sg_ids, app_node_sg_id = args
+        assert app_node_sg_id in sg_ids, (
+            "App node launch template must attach app_node_sg_id, or RDS/"
+            "ElastiCache access rules scoped to it will never match"
+        )
+
+    return pulumi.Output.all(
+        ng.app_launch_template.vpc_security_group_ids,
+        sg.app_node_sg.id,
+    ).apply(check_sg_ids)
 
 
 @pulumi.runtime.test

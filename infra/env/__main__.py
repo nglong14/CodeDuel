@@ -23,7 +23,7 @@ db_user = config.require("db_user")
 app_env = config.get("app_env") or ("production" if env_name == "prod" else "development")
 judge_concurrency = config.get_int("judge_concurrency") or (1 if env_name == "dev" else 4)
 log_retention_days = config.get_int("log_retention_days") or (30 if env_name == "prod" else 7)
-shared_stack_ref_name = config.get("shared_stack_ref") or "codeduel-shared/shared"
+shared_stack_ref_name = config.get("shared_stack_ref") or "organization/codeduel-shared/shared"
 
 # 2. Read Outputs from Shared Stack (VPC, EKS, RDS, ElastiCache, ECR)
 shared_outputs = load_shared_stack_outputs(shared_stack_ref_name)

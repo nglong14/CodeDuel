@@ -40,6 +40,8 @@ class CodeDuelMocks(pulumi.runtime.Mocks):
             outputs["certificateAuthorities"] = [
                 {"data": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg=="}
             ]
+            outputs["kubernetesNetworkConfig"] = {"serviceIpv4Cidr": "172.20.0.0/16"}
+            outputs["vpcConfig"] = {"clusterSecurityGroupId": "sg-eks-cluster-mock"}
             outputs["identities"] = [
                 {
                     "oidcs": [

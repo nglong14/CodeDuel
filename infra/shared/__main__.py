@@ -12,7 +12,12 @@ Orchestrates provisioning of:
 """
 
 import pulumi
-from alb_controller import create_alb_controller_irsa
+import pulumi_kubernetes as k8s
+from alb_controller import (
+    build_cluster_kubeconfig,
+    create_alb_controller_irsa,
+    deploy_alb_controller,
+)
 from certificate import create_certificate
 from ecr import create_ecr_repositories
 from eks import create_eks_cluster
@@ -40,9 +45,15 @@ attach_cluster_to_app_node_rules(
 
 nodegroups_res = create_nodegroups(
     cluster_name=eks_res.cluster.name,
+    cluster_endpoint=eks_res.cluster.endpoint,
+    cluster_ca_data=eks_res.cluster.certificate_authorities[0].data,
+    cluster_service_cidr=eks_res.cluster.kubernetes_network_config.apply(
+        lambda cfg: cfg.service_ipv4_cidr
+    ),
     subnet_ids=subnet_ids,
     app_node_sg_id=sg_res.app_node_sg.id,
     gvisor_node_sg_id=sg_res.gvisor_node_sg.id,
+    cluster_security_group_id=eks_res.cluster.vpc_config.cluster_security_group_id,
 )
 
 rds_res = create_rds_instance(
@@ -58,6 +69,25 @@ cache_res = create_elasticache_cluster(
 alb_irsa_res = create_alb_controller_irsa(
     oidc_provider_arn=eks_res.oidc_provider.arn,
     oidc_provider_url=eks_res.oidc_provider.url,
+)
+
+# Deploy the AWS Load Balancer Controller into the cluster so Ingress
+# resources (see deploy/k8s/base/ingress.yaml) can actually provision an ALB.
+cluster_kubeconfig = build_cluster_kubeconfig(
+    cluster_name=eks_res.cluster.name,
+    cluster_endpoint=eks_res.cluster.endpoint,
+    cluster_ca_data=eks_res.cluster.certificate_authorities[0].data,
+)
+cluster_k8s_provider = k8s.Provider(
+    "codeduel-cluster-k8s-provider",
+    kubeconfig=cluster_kubeconfig,
+)
+alb_controller_release = deploy_alb_controller(
+    cluster_name=eks_res.cluster.name,
+    vpc_id=vpc_res.vpc.id,
+    role_arn=alb_irsa_res.role.arn,
+    k8s_provider=cluster_k8s_provider,
+    region=pulumi.Config("aws").require("region"),
 )
 
 monitoring_res = create_monitoring(

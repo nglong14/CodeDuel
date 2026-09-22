@@ -1,10 +1,11 @@
 config:
   aws:region: us-east-1
   codeduel-env:env: prod
-  codeduel-env:redis_db_index: 0
+  codeduel-env:redis_db_index: "0"
   codeduel-env:db_name: codeduel_prod
   codeduel-env:db_user: codeduel_prod
   codeduel-env:app_env: production
-  codeduel-env:judge_concurrency: 4
-  codeduel-env:log_retention_days: 30
-  codeduel-env:shared_stack_ref: codeduel-shared/shared
+  codeduel-env:judge_concurrency: "4"
+  codeduel-env:log_retention_days: "30"
+  codeduel-env:shared_stack_ref: organization/codeduel-shared/shared
+encryptionsalt: v1:Mzm6fxxUdDA=:v1:5cGE9anJut0aN4CY:JZZMqqZatAS9WoCJWXYquWDGdbfCPA==

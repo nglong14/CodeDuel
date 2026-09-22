@@ -36,12 +36,14 @@ def configure_environment_database(
     )
 
     # 2. Build scoped POSTGRES_DSN with sslmode=require
+    # rds_port arrives as a float from the shared stack's Output (RDS provider
+    # quirk); cast to int here so the DSN never renders "5432.0".
     postgres_dsn = pulumi.Output.all(
         rds_address,
         rds_port,
         db_password.result,
     ).apply(
-        lambda args: f"postgres://{db_user}:{args[2]}@{args[0]}:{args[1]}/{db_name}?sslmode=require"
+        lambda args: f"postgres://{db_user}:{args[2]}@{args[0]}:{int(args[1])}/{db_name}?sslmode=require"
     )
 
     # 3. Bootstrap SQL statements for initial DB & scoped user creation
@@ -142,7 +144,9 @@ def create_database_bootstrap_job(
                                 k8s.core.v1.EnvVarArgs(name="PGHOST", value=rds_address),
                                 k8s.core.v1.EnvVarArgs(
                                     name="PGPORT",
-                                    value=pulumi.Output.from_input(rds_port).apply(str),
+                                    value=pulumi.Output.from_input(rds_port).apply(
+                                        lambda p: str(int(p))
+                                    ),
                                 ),
                                 k8s.core.v1.EnvVarArgs(
                                     name="PGUSER", value=rds_master_username
