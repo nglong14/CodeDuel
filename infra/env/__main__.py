@@ -5,13 +5,14 @@ Orchestrates provisioning of:
 - Logical Redis URL for the environment.
 - Kubernetes Namespace (enforcing Pod Security Standards 'restricted').
 - Kubernetes Secret 'codeduel-secrets' (JWT_SECRET, POSTGRES_DSN, REDIS_URL).
-- CloudWatch Log Groups for Gateway, Match, Judge, and Reaper.
+- CloudWatch Log Group for the environment (written by the shared stack's
+  Fluent Bit DaemonSet).
 """
 
 import pulumi
 from database import configure_environment_database, create_database_bootstrap_job
 from k8s_secrets import configure_k8s_secrets
-from log_groups import create_environment_log_groups
+from log_groups import create_environment_log_group
 from stack_refs import load_shared_stack_outputs
 
 # 1. Read Stack Configuration
@@ -69,9 +70,10 @@ db_bootstrap_job = create_database_bootstrap_job(
     k8s_provider=k8s_res.provider,
 )
 
-# 7. CloudWatch Log Groups
-log_res = create_environment_log_groups(
+# 7. CloudWatch Log Group (Fluent Bit in the shared stack writes pod logs here)
+log_group = create_environment_log_group(
     env_name=env_name,
+    namespace=f"codeduel-{env_name}",
     retention_days=log_retention_days,
 )
 
@@ -85,7 +87,4 @@ pulumi.export("db_user", db_user)
 pulumi.export("postgres_dsn", db_res.postgres_dsn)
 pulumi.export("redis_url", redis_url)
 pulumi.export("jwt_secret", pulumi.Output.secret(k8s_res.jwt_secret.result))
-pulumi.export(
-    "log_group_names",
-    {role: lg.name for role, lg in log_res.log_groups.items()},
-)
+pulumi.export("log_group_name", log_group.name)

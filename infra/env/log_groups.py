@@ -1,42 +1,31 @@
-"""CloudWatch Log Groups for CodeDuel Environment Workloads.
+"""CloudWatch Log Group for a CodeDuel environment.
 
-Manages application log streams for:
-- Gateway
-- Match
-- Judge
-- Reaper
+One group per environment, named after the Kubernetes namespace, because that
+is exactly what the Fluent Bit DaemonSet's `log_group_template`
+(`/$kubernetes['namespace_name']`, see infra/shared/fluent_bit.py) resolves to.
+Fluent Bit is not permitted to create groups, so this resource is what makes
+retention (and therefore cost) managed rather than unbounded.
+
+Streams are `<pod>.<container>`, so per-role queries are a stream-prefix filter
+(`gateway-`, `match-`, `judge-`, `reaper-`) instead of a separate group.
 """
-
-from typing import NamedTuple
 
 import pulumi_aws as aws
 
-ROLES = ["gateway", "match", "judge", "reaper"]
 
-
-class LogGroupResources(NamedTuple):
-    log_groups: dict[str, aws.cloudwatch.LogGroup]
-
-
-def create_environment_log_groups(
+def create_environment_log_group(
     env_name: str,
+    namespace: str,
     retention_days: int = 7,
-) -> LogGroupResources:
-    log_groups: dict[str, aws.cloudwatch.LogGroup] = {}
-
-    for role in ROLES:
-        group_name = f"/codeduel/{env_name}/{role}"
-        log_group = aws.cloudwatch.LogGroup(
-            f"codeduel-{env_name}-log-{role}",
-            name=group_name,
-            retention_in_days=retention_days,
-            tags={
-                "Name": group_name,
-                "Project": "codeduel",
-                "Environment": env_name,
-                "Role": role,
-            },
-        )
-        log_groups[role] = log_group
-
-    return LogGroupResources(log_groups=log_groups)
+) -> aws.cloudwatch.LogGroup:
+    group_name = f"/{namespace}"
+    return aws.cloudwatch.LogGroup(
+        f"codeduel-{env_name}-logs",
+        name=group_name,
+        retention_in_days=retention_days,
+        tags={
+            "Name": group_name,
+            "Project": "codeduel",
+            "Environment": env_name,
+        },
+    )
