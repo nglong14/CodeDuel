@@ -33,14 +33,23 @@ GITHUB_OIDC_THUMBPRINT = "6938fd4d98bab03faadb97b34396831e3780aea1"
 PLAN_ROLE_NAME = "codeduel-github-plan"
 DEPLOY_ROLE_NAME = "codeduel-github-deploy"
 
-# GitHub sets sub to `repo:<owner>/<repo>:environment:<name>` when a job declares
-# an environment, and `repo:<owner>/<repo>:ref:<git-ref>` when it does not, so the
-# deploy role needs both forms. Pull requests get `...:pull_request`.
-PLAN_SUB_TEMPLATES = ["repo:{repo}:pull_request"]
+# GitHub sets sub to `<prefix>:environment:<name>` when a job declares an
+# environment, and `<prefix>:ref:<git-ref>` when it does not, so the deploy role
+# needs both forms. Pull requests get `<prefix>:pull_request`.
+#
+# `<prefix>` is `repo:<owner>/<repo>` on older repositories, and
+# `repo:<owner>@<owner-id>/<repo>@<repo-id>` on ones using immutable subject
+# claims - the default for repositories created after 2026-07-15, and for any
+# repository renamed or transferred after that date. The two forms are not
+# interchangeable under StringEquals, and a mismatch surfaces only as
+# "Not authorized to perform sts:AssumeRoleWithWebIdentity" with no hint that the
+# subject is the problem. Which form a repository sends:
+#   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+PLAN_SUB_TEMPLATES = ["{prefix}:pull_request"]
 DEPLOY_SUB_TEMPLATES = [
-    "repo:{repo}:ref:refs/heads/main",
-    "repo:{repo}:environment:dev",
-    "repo:{repo}:environment:prod",
+    "{prefix}:ref:refs/heads/main",
+    "{prefix}:environment:dev",
+    "{prefix}:environment:prod",
 ]
 
 
@@ -55,12 +64,33 @@ class GithubOidcResources(NamedTuple):
     access_policies: dict[str, aws.eks.AccessPolicyAssociation]
 
 
+def subject_prefix(
+    repository: str,
+    owner_id: str | None = None,
+    repository_id: str | None = None,
+) -> str:
+    """The `repo:...` part of the sub claim, in whichever form this repo sends.
+
+    Both ids or neither: half of the immutable form is not a form GitHub emits,
+    and silently falling back to the legacy one would produce a trust policy that
+    looks configured and rejects every token.
+    """
+    if bool(owner_id) != bool(repository_id):
+        raise ValueError(
+            "github_repository_owner_id and github_repository_id must be set together"
+        )
+    if not owner_id:
+        return f"repo:{repository}"
+    owner, _, name = repository.partition("/")
+    return f"repo:{owner}@{owner_id}/{name}@{repository_id}"
+
+
 def _assume_role_policy(
     provider_arn: pulumi.Input[str],
-    repository: str,
+    prefix: str,
     sub_templates: list[str],
 ) -> pulumi.Output[str]:
-    subs = [template.format(repo=repository) for template in sub_templates]
+    subs = [template.format(prefix=prefix) for template in sub_templates]
 
     return pulumi.Output.from_input(provider_arn).apply(
         lambda arn: json.dumps(
@@ -91,13 +121,20 @@ def create_github_oidc(
     repository: str,
     cluster_name: pulumi.Input[str],
     existing_provider_arn: str | None = None,
+    owner_id: str | None = None,
+    repository_id: str | None = None,
 ) -> GithubOidcResources:
     """Provision the GitHub OIDC provider (unless reusing one) and both CI roles.
 
     An AWS account can hold only one OIDC provider per issuer URL, so pass
     `existing_provider_arn` (config `codeduel-shared:github_oidc_provider_arn`)
     if the account already has one from another project.
+
+    Pass `owner_id` and `repository_id` (config
+    `codeduel-shared:github_repository_owner_id` and `:github_repository_id`) if
+    the repository uses immutable subject claims; see PLAN_SUB_TEMPLATES above.
     """
+    prefix = subject_prefix(repository, owner_id, repository_id)
     if existing_provider_arn:
         provider_arn: pulumi.Output[str] = pulumi.Output.from_input(existing_provider_arn)
     else:
@@ -118,7 +155,7 @@ def create_github_oidc(
     plan_role = aws.iam.Role(
         "codeduel-github-plan-role",
         name=PLAN_ROLE_NAME,
-        assume_role_policy=_assume_role_policy(provider_arn, repository, PLAN_SUB_TEMPLATES),
+        assume_role_policy=_assume_role_policy(provider_arn, prefix, PLAN_SUB_TEMPLATES),
         tags={
             "Name": PLAN_ROLE_NAME,
             "Project": "codeduel",
@@ -137,7 +174,7 @@ def create_github_oidc(
     deploy_role = aws.iam.Role(
         "codeduel-github-deploy-role",
         name=DEPLOY_ROLE_NAME,
-        assume_role_policy=_assume_role_policy(provider_arn, repository, DEPLOY_SUB_TEMPLATES),
+        assume_role_policy=_assume_role_policy(provider_arn, prefix, DEPLOY_SUB_TEMPLATES),
         tags={
             "Name": DEPLOY_ROLE_NAME,
             "Project": "codeduel",

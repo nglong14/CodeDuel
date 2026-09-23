@@ -23,14 +23,38 @@ from github_oidc import (
     DEPLOY_ROLE_NAME,
     PLAN_ROLE_NAME,
     create_github_oidc,
+    subject_prefix,
 )
 
 REPOSITORY = "nglong14/CodeDuel"
+OWNER_ID = "109326300"
+REPOSITORY_ID = "1327800635"
+# What the repository's tokens actually carry, per
+# `gh api /repos/nglong14/CodeDuel/actions/oidc/customization/sub`.
+PREFIX = f"repo:nglong14@{OWNER_ID}/CodeDuel@{REPOSITORY_ID}"
 
 
 @pytest.fixture(scope="module")
 def github_oidc():
-    return create_github_oidc(repository=REPOSITORY, cluster_name="codeduel")
+    return create_github_oidc(
+        repository=REPOSITORY,
+        cluster_name="codeduel",
+        owner_id=OWNER_ID,
+        repository_id=REPOSITORY_ID,
+    )
+
+
+def test_subject_prefix_uses_the_immutable_form_when_ids_are_configured():
+    """The legacy and immutable forms are not interchangeable under StringEquals:
+
+    a policy written for one rejects every token from the other, and STS reports
+    it only as "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+    """
+    assert subject_prefix(REPOSITORY, OWNER_ID, REPOSITORY_ID) == PREFIX
+    assert subject_prefix(REPOSITORY) == f"repo:{REPOSITORY}"
+    # Half-configured would otherwise emit a legacy prefix that looks deliberate.
+    with pytest.raises(ValueError):
+        subject_prefix(REPOSITORY, owner_id=OWNER_ID)
 
 
 def _conditions(doc_json: str) -> dict:
@@ -48,7 +72,7 @@ def test_plan_role_trusts_only_pull_requests_on_this_repository(github_oidc):
     def check(doc_json):
         conditions = _conditions(doc_json)
         assert conditions["token.actions.githubusercontent.com:sub"] == [
-            f"repo:{REPOSITORY}:pull_request"
+            f"{PREFIX}:pull_request"
         ]
         assert conditions["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
 
@@ -60,9 +84,9 @@ def test_deploy_role_trusts_only_main_and_the_two_environments(github_oidc):
     def check(doc_json):
         conditions = _conditions(doc_json)
         assert conditions["token.actions.githubusercontent.com:sub"] == [
-            f"repo:{REPOSITORY}:ref:refs/heads/main",
-            f"repo:{REPOSITORY}:environment:dev",
-            f"repo:{REPOSITORY}:environment:prod",
+            f"{PREFIX}:ref:refs/heads/main",
+            f"{PREFIX}:environment:dev",
+            f"{PREFIX}:environment:prod",
         ], "A branch other than main, or a fork, must not be able to deploy"
         assert conditions["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
 

@@ -22,6 +22,7 @@ from fluent_bit import (
     LOG_GROUP_PREFIX,
     LOG_GROUP_TEMPLATE,
     SERVICE_ACCOUNT_NAME,
+    cloudwatch_logs_values,
     create_fluent_bit_irsa,
 )
 from log_groups import create_environment_log_group
@@ -34,6 +35,37 @@ def fluent_bit_irsa():
         oidc_provider_url="https://oidc.eks.us-east-1.amazonaws.com/id/EXAMPLE",
     )
     return role, policy
+
+
+def test_cloudwatch_output_sets_the_fallbacks_the_plugin_requires():
+    """Regression: the templates are overrides, not replacements.
+
+    cloudwatch_logs requires log_group_name plus one of log_stream_name or
+    log_stream_prefix regardless of whether the templates are set. Shipping only
+    the templates made the plugin fail initialization and crash-loop the
+    DaemonSet; Helm rendered the config perfectly, so only Fluent Bit itself
+    rejected it.
+    """
+    values = cloudwatch_logs_values("us-east-1")
+
+    assert values["logGroupTemplate"], "the template is what routes per namespace"
+    assert values["logStreamTemplate"]
+    assert values["logGroupName"], "log_group_name is required even with a template"
+    assert values["logStreamPrefix"] or values.get("logStreamName"), (
+        "cloudwatch_logs refuses to initialize without log_stream_prefix or "
+        "log_stream_name, even when log_stream_template is set"
+    )
+
+
+def test_record_accessor_templates_respect_the_separator_limitation():
+    """Only '.' and ',' may follow a record-accessor variable in a template."""
+    for template in (LOG_GROUP_TEMPLATE, cloudwatch_logs_values("us-east-1")["logStreamTemplate"]):
+        for part in template.split("$")[1:]:
+            after = part[part.index("]") + 1 :] if "]" in part else ""
+            assert after == "" or after[0] in ".,", (
+                f"{template!r}: a variable is followed by {after[0]!r}; the "
+                "record_accessor parser only accepts '.' or ',' there"
+            )
 
 
 @pulumi.runtime.test

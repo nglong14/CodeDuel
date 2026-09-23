@@ -126,6 +126,31 @@ def create_fluent_bit_irsa(
     return role, policy
 
 
+def cloudwatch_logs_values(region: str) -> dict:
+    """Values for the chart's cloudWatchLogs output.
+
+    The plugin requires log_group_name, and one of log_stream_name or
+    log_stream_prefix, EVEN WHEN the corresponding template is set: the templates
+    are overrides, and the plain values are the fallback used when record-accessor
+    translation fails. Omitting the stream fallback fails plugin initialization
+    outright ("Either 'log_stream_name' or 'log_stream_prefix' is required"),
+    which crash-loops the DaemonSet rather than degrading. Both fallbacks are
+    named 'fallback' so anything landing there is visibly a translation failure.
+    """
+    return {
+        "enabled": True,
+        "region": region,
+        "logGroupName": f"{LOG_GROUP_PREFIX}fallback",
+        "logGroupTemplate": LOG_GROUP_TEMPLATE,
+        "logStreamPrefix": "fallback-",
+        "logStreamTemplate": LOG_STREAM_TEMPLATE,
+        # String, not bool: the chart wraps this key in `{{- if }}`, so a Python
+        # False would drop the line entirely and leave the plugin on its own
+        # default rather than asserting "false".
+        "autoCreateGroup": "false",
+    }
+
+
 def deploy_fluent_bit(
     oidc_provider_arn: pulumi.Input[str],
     oidc_provider_url: pulumi.Input[str],
@@ -160,23 +185,7 @@ def deploy_fluent_bit(
                 "path": "/var/log/containers/*_codeduel-*_*.log",
             },
             "cloudWatch": {"enabled": False},
-            "cloudWatchLogs": {
-                "enabled": True,
-                "region": region,
-                # Required fallback if template translation ever fails; the
-                # template itself is what actually routes each namespace.
-                "logGroupName": f"{LOG_GROUP_PREFIX}fallback",
-                "logGroupTemplate": LOG_GROUP_TEMPLATE,
-                # Empty string, not None: the chart's default is "fluentbit-",
-                # and a dropped key would leave that default in place alongside
-                # logStreamTemplate. "" is falsy to Helm, so the line is omitted.
-                "logStreamPrefix": "",
-                "logStreamTemplate": LOG_STREAM_TEMPLATE,
-                # String, not bool: the chart wraps this key in `{{- if }}`, so a
-                # Python False would drop the line entirely and leave the plugin
-                # on its own default rather than asserting "false".
-                "autoCreateGroup": "false",
-            },
+            "cloudWatchLogs": cloudwatch_logs_values(region),
         },
         opts=pulumi.ResourceOptions(provider=k8s_provider),
     )

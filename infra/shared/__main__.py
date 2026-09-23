@@ -151,12 +151,19 @@ cert_res = create_certificate(domain_name=domain_name, zone_id=zone_id)
 # GitHub Actions CI/CD roles. Skipped unless the repository is configured, so a
 # laptop-only workflow needs no extra config:
 #   pulumi config set codeduel-shared:github_repository <owner>/CodeDuel
+# Plus, if the repository uses immutable OIDC subject claims (check with
+# `gh api /repos/<owner>/<repo>/actions/oidc/customization/sub`), the two ids that
+# its sub claim carries:
+#   pulumi config set codeduel-shared:github_repository_owner_id <owner-id>
+#   pulumi config set codeduel-shared:github_repository_id <repo-id>
 github_repository = shared_config.get("github_repository")
 github_res = (
     create_github_oidc(
         repository=github_repository,
         cluster_name=eks_res.cluster.name,
         existing_provider_arn=shared_config.get("github_oidc_provider_arn"),
+        owner_id=shared_config.get("github_repository_owner_id"),
+        repository_id=shared_config.get("github_repository_id"),
     )
     if github_repository
     else None

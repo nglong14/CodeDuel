@@ -1,3 +1,9 @@
 config:
   aws:region: us-east-1
+  codeduel-shared:github_repository: nglong14/CodeDuel
+  # This repository uses immutable OIDC subject claims, so its sub claim is
+  # `repo:nglong14@109326300/CodeDuel@1327800635:...`, not `repo:nglong14/CodeDuel:...`.
+  # Both ids are stable across renames and transfers.
+  codeduel-shared:github_repository_owner_id: '109326300'
+  codeduel-shared:github_repository_id: '1327800635'
 encryptionsalt: v1:5dwrcEfs0Aw=:v1:oUsX7SqSFCnKE1D4:0CuhSv8Zk6zbmmlgoaBevmdFbLBd7Q==
