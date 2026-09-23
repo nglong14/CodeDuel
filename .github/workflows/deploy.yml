@@ -1,0 +1,149 @@
+name: Deploy
+
+# Anything on main has already passed the required checks from ci.yml through
+# branch protection, so there is no workflow_run plumbing here: branch protection
+# is the gate, and it is free.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (defaults to this commit). Use an earlier tag to roll back.'
+        required: false
+        type: string
+
+env:
+  PULUMI_VERSION: 3.263.0
+
+jobs:
+  deploy-dev:
+    name: Deploy dev
+    runs-on: ubuntu-latest
+    environment: dev # no required reviewer; dev deploys on merge
+    # Never two deploys at once against the same environment. cancel-in-progress
+    # stays false on purpose: killing a pulumi up mid-apply is how state and
+    # reality diverge.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PULUMI_BACKEND_URL: ${{ vars.PULUMI_BACKEND_URL }}
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      PULUMI_SKIP_UPDATE_CHECK: 'true'
+      IMAGE_TAG: ${{ inputs.image_tag || '' }}
+    outputs:
+      image_tag: ${{ steps.deploy.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Create infra virtualenv
+        run: make infra-deps
+
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh -s -- --version "$PULUMI_VERSION"
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+
+      - uses: azure/setup-kubectl@v4
+
+      # The codeduel image runs on arm64 Graviton nodes and the sandbox images on
+      # x86_64 gVisor nodes, so the runner cross-builds both.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy
+        id: deploy
+        run: |
+          tag="${IMAGE_TAG:-${GITHUB_SHA::7}}"
+          echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
+          infra/scripts/deploy_env.sh dev "$tag"
+
+      - name: Smoke test
+        run: |
+          # No public host yet (Ingress/TLS is rollout step 5 and still blocked on
+          # a domain), so the test runs through a port-forward. Swap for the real
+          # host once one exists.
+          kubectl port-forward -n codeduel-dev svc/gateway 8080:8080 &
+          forward_pid=$!
+          trap 'kill $forward_pid' EXIT
+          for _ in $(seq 1 15); do
+            curl -sf http://localhost:8080/healthz >/dev/null && break
+            sleep 2
+          done
+          infra/scripts/smoke.sh http://localhost:8080 --with-auth
+
+  deploy-prod:
+    name: Deploy prod
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    # The required reviewer on this Environment is the real control on the
+    # deploy role's broad permissions. Configure it in repository settings;
+    # without a reviewer this job is an auto-deploy to production.
+    environment: prod
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PULUMI_BACKEND_URL: ${{ vars.PULUMI_BACKEND_URL }}
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      PULUMI_SKIP_UPDATE_CHECK: 'true'
+      IMAGE_TAG: ${{ needs.deploy-dev.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Create infra virtualenv
+        run: make infra-deps
+
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh -s -- --version "$PULUMI_VERSION"
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+
+      - uses: azure/setup-kubectl@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # No buildx setup here, deliberately: deploy_env.sh finds this tag already
+      # in ECR and skips all four builds, so prod runs the exact bytes dev ran.
+      # If a build were ever attempted here it would fail loudly rather than
+      # quietly producing a second, different image under the same tag.
+      - name: Deploy (promotes the image dev already ran)
+        run: infra/scripts/deploy_env.sh prod "$IMAGE_TAG"
+
+      - name: Smoke test
+        run: |
+          kubectl port-forward -n codeduel-prod svc/gateway 8080:8080 &
+          forward_pid=$!
+          trap 'kill $forward_pid' EXIT
+          for _ in $(seq 1 15); do
+            curl -sf http://localhost:8080/healthz >/dev/null && break
+            sleep 2
+          done
+          # Read-only: --with-auth writes a user row, which is fine to accumulate
+          # in dev and not in the real users table.
+          infra/scripts/smoke.sh http://localhost:8080

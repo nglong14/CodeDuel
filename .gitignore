@@ -35,3 +35,17 @@ Editor/IDE
 docs/*
 session-ses_f97d.md
 node_modules/
+
+# Python & Environment Caches
+.venv/
+**/.venv/
+venv/
+**/venv/
+.pytest_cache/
+**/.pytest_cache/
+.cache/
+**/.cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
