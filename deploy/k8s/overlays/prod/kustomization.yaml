@@ -16,12 +16,11 @@ patches:
   - path: ingress-host.yaml
   - path: gateway-replicas.yaml
 
-# Pinned by CI to the same immutable image digest dev already ran, promoted
-# behind manual approval; `latest` here is a local-render placeholder only.
+# Promotes the same immutable release tags dev ran, behind manual approval.
 images:
   - name: codeduel
     newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/codeduel
-    newTag: latest
+    newTag: RELEASE_TAG
 
 labels:
   - pairs:

@@ -6,11 +6,10 @@ metadata:
     app.kubernetes.io/name: migrate
     app.kubernetes.io/part-of: codeduel
 spec:
-  # Standalone one-off Job: applied during environment bring-up or pre-deploy
-  # database schema updates, rather than continuously in the main service overlay.
-  # The migration SQL itself is embedded, versioned, and idempotent.
-  # backoffLimit + ttlSecondsAfterFinished ensure clean termination.
+  # Rendered with the workloads, but applied and awaited before their rollout.
+  # The deploy renderer gives this Job a release-specific name.
   backoffLimit: 2
+  activeDeadlineSeconds: 180
   ttlSecondsAfterFinished: 300
   template:
     metadata:

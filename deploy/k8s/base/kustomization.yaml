@@ -4,8 +4,6 @@ kind: Kustomization
 namespace: codeduel
 
 resources:
-  - namespace.yaml
-  - runtimeclass.yaml
   - sandbox-networkpolicy.yaml
   - gateway-deployment.yaml
   - match-deployment.yaml
@@ -13,16 +11,20 @@ resources:
   - judge-deployment.yaml
   - judge-rbac.yaml
   - ingress.yaml
+  - migrate-job.yaml
 
 configMapGenerator:
   - name: codeduel-config
     envs:
       - config.env
+    options:
+      labels:
+        app.kubernetes.io/name: configuration
 
 images:
   - name: codeduel
     newName: codeduel
-    newTag: latest
+    newTag: RELEASE_TAG
 
 labels:
   - pairs:

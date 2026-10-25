@@ -3,7 +3,8 @@
 Key architectural constraints:
 - ALB SG: Accepts 80 and 443 from 0.0.0.0/0.
 - App Node SG: Accepts 8080 only from ALB SG.
-- gVisor Node SG: STRICTLY ZERO INBOUND RULES from any source (outbound only to ECR / K8s API).
+- gVisor supplemental SG: no inbound rules; nodes also attach EKS's cluster SG.
+  Effective permissions are the union of attached groups. This SG is not a deny rule.
 - RDS SG: Inbound 5432 only from App Node SG.
 - ElastiCache SG: Inbound 6379 only from App Node SG.
 """
@@ -101,15 +102,17 @@ def create_security_groups(vpc_id: pulumi.Input[str]) -> SecurityGroupResources:
     )
 
     # 3. gVisor Runner Node Security Group
-    # STRICTLY ZERO INBOUND RULES: No ingress rules are created here.
+    # This supplemental group adds no ingress. The attached EKS cluster group can
+    # still allow node/control-plane traffic; sandbox pod isolation uses the CNI
+    # NetworkPolicy plus gVisor, not an empty security group's implicit denial.
     gvisor_node_sg = aws.ec2.SecurityGroup(
         "codeduel-gvisor-node-sg",
         vpc_id=vpc_id,
-        description="Security group for isolated gVisor runner nodes (strictly zero inbound)",
+        description="Supplemental gVisor node group; adds no inbound permissions",
         ingress=[],
         egress=[
             aws.ec2.SecurityGroupEgressArgs(
-                description="Outbound only: pull sandbox images from ECR, status to EKS API",
+                description="Node egress; sandbox pod egress is denied by NetworkPolicy",
                 protocol="-1",
                 from_port=0,
                 to_port=0,

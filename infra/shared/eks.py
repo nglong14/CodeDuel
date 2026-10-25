@@ -17,6 +17,7 @@ class EksResources(NamedTuple):
     cluster: aws.eks.Cluster
     cluster_role: aws.iam.Role
     oidc_provider: aws.iam.OpenIdConnectProvider
+    vpc_cni_addon: aws.eks.Addon
 
 
 def create_eks_cluster(subnet_ids: list[pulumi.Input[str]]) -> EksResources:
@@ -74,6 +75,18 @@ def create_eks_cluster(subnet_ids: list[pulumi.Input[str]]) -> EksResources:
         },
     )
 
+    # NetworkPolicy objects are not a boundary unless the CNI enforces them.
+    # Import an existing EKS-managed addon before the first platform update;
+    # unmanaged aws-node installations can be adopted via OVERWRITE on creation.
+    vpc_cni_addon = aws.eks.Addon(
+        "codeduel-vpc-cni",
+        cluster_name=cluster.name,
+        addon_name="vpc-cni",
+        configuration_values=json.dumps({"enableNetworkPolicy": "true"}),
+        resolve_conflicts_on_create="OVERWRITE",
+        resolve_conflicts_on_update="PRESERVE",
+    )
+
     shared_config = pulumi.Config("codeduel-shared")
     admin_principal_arn = shared_config.get("admin_principal_arn")
     if admin_principal_arn:
@@ -109,4 +122,5 @@ def create_eks_cluster(subnet_ids: list[pulumi.Input[str]]) -> EksResources:
         cluster=cluster,
         cluster_role=cluster_role,
         oidc_provider=oidc_provider,
+        vpc_cni_addon=vpc_cni_addon,
     )

@@ -1,0 +1,55 @@
+name: Infrastructure
+
+# Platform changes are explicit, serialized, and separately approved. Configure
+# required reviewers and a main-only deployment rule on the infrastructure Environment.
+on:
+  workflow_dispatch:
+    inputs:
+      stack:
+        description: 'Platform stack to update (shared first when provisioning)'
+        required: true
+        type: choice
+        options: [shared, dev, prod]
+
+concurrency:
+  group: codeduel-platform
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: infrastructure
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      PULUMI_BACKEND_URL: ${{ vars.PULUMI_BACKEND_URL }}
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      PULUMI_SKIP_UPDATE_CHECK: 'true'
+      PULUMI_VERSION: 3.263.0
+      TARGET_STACK: ${{ inputs.stack }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: make infra-deps
+      - name: Install Pulumi CLI
+        run: |
+          curl -fsSL https://get.pulumi.com | sh -s -- --version "$PULUMI_VERSION"
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Preview and apply platform stack
+        run: |
+          case "$TARGET_STACK" in
+            shared) directory=infra/shared ;;
+            dev | prod) directory=infra/env ;;
+            *) exit 1 ;;
+          esac
+          pulumi -C "$directory" preview --stack "$TARGET_STACK" --diff --non-interactive
+          pulumi -C "$directory" up --stack "$TARGET_STACK" --yes --non-interactive

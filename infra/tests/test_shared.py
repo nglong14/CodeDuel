@@ -3,7 +3,7 @@
 Asserts all architectural invariants without contacting AWS:
 - Zero NAT Gateways are created.
 - Two public subnets across 2 AZs with ELB tags.
-- gVisor runner node security group has STRICTLY ZERO ingress rules.
+- gVisor supplemental group adds no ingress; effective node permissions also include the cluster SG.
 - RDS and ElastiCache accept traffic only from the App node security group.
 - App node group is arm64 (t4g.small) and gVisor node group is x86_64 (t3.small) with sandbox taint.
 - RDS enforces SSL (rds.force_ssl=1).
@@ -116,9 +116,9 @@ def test_vpc_and_subnets(shared_infra):
 def test_security_groups_isolation(shared_infra):
     sg = shared_infra["sg"]
 
-    # 1. gVisor Security Group MUST have 0 ingress rules
+    # This group adds no ingress, but is not a deny override for the cluster SG.
     def check_gvisor_sg(ingress):
-        assert len(ingress) == 0, "gVisor security group must have strictly zero ingress rules"
+        assert len(ingress) == 0, "gVisor supplemental group must add no ingress rules"
 
     check_output(sg.gvisor_node_sg.ingress, check_gvisor_sg)
 
@@ -146,6 +146,48 @@ def test_ecr_repositories(shared_infra):
     ecr = shared_infra["ecr"]
     expected_repos = {"codeduel", "sandbox-python", "sandbox-cpp", "sandbox-java"}
     assert set(ecr.repositories.keys()) == expected_repos
+
+    def check(mutabilities):
+        assert all(value == "IMMUTABLE" for value in mutabilities)
+
+    return pulumi.Output.all(
+        *[repo.image_tag_mutability for repo in ecr.repositories.values()]
+    ).apply(check)
+
+
+@pulumi.runtime.test
+def test_sandbox_effective_security_groups_exclude_database_access_group(shared_infra):
+    ng, sg, eks = shared_infra["nodegroups"], shared_infra["sg"], shared_infra["eks"]
+
+    def check(args):
+        attached, sandbox_group, cluster_group, app_group, db_rules, cache_rules = args
+        assert set(attached) == {sandbox_group, cluster_group}
+        assert app_group not in attached
+        # Database/cache ingress must refer to app SG, not the shared cluster SG.
+        for rules in (db_rules, cache_rules):
+            assert len(rules) == 1
+            rule = rules[0]
+            assert set(rule.get("security_groups", rule.get("securityGroups", []))) == {app_group}
+            assert not rule.get("cidr_blocks", rule.get("cidrBlocks", []))
+
+    return pulumi.Output.all(
+        ng.gvisor_launch_template.vpc_security_group_ids,
+        sg.gvisor_node_sg.id,
+        eks.cluster.vpc_config.cluster_security_group_id,
+        sg.app_node_sg.id,
+        sg.rds_sg.ingress,
+        sg.elasticache_sg.ingress,
+    ).apply(check)
+
+
+@pulumi.runtime.test
+def test_cni_enforces_network_policies(shared_infra):
+    import json
+
+    def check(configuration):
+        assert json.loads(configuration)["enableNetworkPolicy"] == "true"
+
+    return shared_infra["eks"].vpc_cni_addon.configuration_values.apply(check)
 
 
 @pulumi.runtime.test
@@ -237,6 +279,25 @@ def test_rds_configuration(shared_infra):
 
 
 @pulumi.runtime.test
+def test_shared_database_keeps_backups_and_requires_explicit_deletion(shared_infra):
+    instance = shared_infra["rds"].instance
+
+    def check(args):
+        protection, skip_snapshot, retention, snapshot_name = args
+        assert protection is True
+        assert skip_snapshot is False
+        assert retention >= 7
+        assert snapshot_name
+
+    return pulumi.Output.all(
+        instance.deletion_protection,
+        instance.skip_final_snapshot,
+        instance.backup_retention_period,
+        instance.final_snapshot_identifier,
+    ).apply(check)
+
+
+@pulumi.runtime.test
 def test_elasticache_configuration(shared_infra):
     cache = shared_infra["cache"]
 
@@ -277,4 +338,3 @@ def test_no_nat_gateway(shared_infra):
     assert "aws:ec2/natGateway:NatGateway" not in CodeDuelMocks.created_resources, (
         "Zero NAT Gateways must be created in this architecture to save costs"
     )
-

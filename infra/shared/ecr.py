@@ -60,7 +60,7 @@ def create_ecr_repositories() -> EcrResources:
         repo = aws.ecr.Repository(
             f"codeduel-ecr-{name}",
             name=name,
-            image_tag_mutability="MUTABLE",
+            image_tag_mutability="IMMUTABLE",
             image_scanning_configuration=aws.ecr.RepositoryImageScanningConfigurationArgs(
                 scan_on_push=True,
             ),

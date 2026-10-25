@@ -165,7 +165,7 @@ def create_nodegroups(
         },
     )
 
-    # 3. gVisor Runner Launch Template (x86_64, installs runsc, attached to zero-inbound SG)
+    # 3. gVisor Runner Launch Template (x86_64, installs runsc).
     encoded_userdata = pulumi.Output.all(
         cluster_name,
         cluster_endpoint,
@@ -185,8 +185,8 @@ def create_nodegroups(
         # A custom launch template's own security groups replace (rather than
         # merge with) the EKS-managed cluster security group that EKS would
         # otherwise auto-attach. That cluster SG is required for node<->control
-        # plane communication, so it must be included alongside the zero-inbound
-        # gVisor SG here.
+        # plane communication. Effective permissions are the union of both
+        # groups: the supplemental gVisor group does not cancel cluster SG rules.
         vpc_security_group_ids=[gvisor_node_sg_id, cluster_security_group_id],
         tag_specifications=[
             aws.ec2.LaunchTemplateTagSpecificationArgs(

@@ -9,7 +9,13 @@ Orchestrates provisioning of:
   Fluent Bit DaemonSet).
 """
 
+import sys
+from pathlib import Path
+
 import pulumi
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from database import configure_environment_database, create_database_bootstrap_job
 from k8s_secrets import configure_k8s_secrets
 from log_groups import create_environment_log_group
@@ -18,11 +24,11 @@ from stack_refs import load_shared_stack_outputs
 # 1. Read Stack Configuration
 config = pulumi.Config()
 env_name = config.require("env")
+if env_name not in ("dev", "prod") or pulumi.get_stack() != env_name:
+    raise ValueError("env must be dev or prod and match the selected Pulumi stack")
 redis_db_index = config.require_int("redis_db_index")
 db_name = config.require("db_name")
 db_user = config.require("db_user")
-app_env = config.get("app_env") or ("production" if env_name == "prod" else "development")
-judge_concurrency = config.get_int("judge_concurrency") or (1 if env_name == "dev" else 4)
 log_retention_days = config.get_int("log_retention_days") or (30 if env_name == "prod" else 7)
 shared_stack_ref_name = config.get("shared_stack_ref") or "organization/codeduel-shared/shared"
 
@@ -79,8 +85,6 @@ log_group = create_environment_log_group(
 
 # 8. Export Stack Outputs
 pulumi.export("env", env_name)
-pulumi.export("app_env", app_env)
-pulumi.export("judge_concurrency", judge_concurrency)
 pulumi.export("namespace", k8s_res.namespace.metadata.name)
 pulumi.export("db_name", db_name)
 pulumi.export("db_user", db_user)

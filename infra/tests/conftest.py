@@ -7,6 +7,7 @@ import pulumi
 
 # Ensure infra/shared is in sys.path for test imports
 SHARED_DIR = str(Path(__file__).parent.parent / "shared")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 if SHARED_DIR not in sys.path:
     sys.path.insert(0, SHARED_DIR)
 
@@ -115,4 +116,3 @@ def init_mocks():
 
 # Run before any test module is imported or executed
 init_mocks()
-

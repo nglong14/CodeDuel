@@ -163,11 +163,14 @@ Docker Judge containers have no network, run as non-root, use a read-only root f
 
 Deployment code is included, but it should not be confused with a fully verified public service:
 
-- [`deploy/k8s/`](deploy/k8s/) contains Kustomize base manifests and `dev`/`prod` overlays, including application roles, migration Job, sandbox RuntimeClass, RBAC, and network policy.
-- [`infra/shared/`](infra/shared/) provisions shared AWS infrastructure with Pulumi: VPC, EKS, separate application/sandbox node groups, RDS, ElastiCache, ECR, load balancer controller, log shipping, and monitoring.
+- [`deploy/k8s/`](deploy/k8s/) contains Kustomize base manifests and `dev`/`prod` overlays for application workloads/configuration, migration Jobs, ingress, RBAC, and network policy.
+- [`infra/shared/`](infra/shared/) provisions shared AWS infrastructure and cluster resources with Pulumi: VPC, EKS, separate application/sandbox node groups, network-policy enforcement, the gVisor RuntimeClass, RDS, ElastiCache, immutable ECR repositories, controllers, logging, and monitoring.
 - [`infra/env/`](infra/env/) provisions per-environment namespaces, credentials/secrets, database bootstrap Jobs, and log groups.
-- [`infra/scripts/bootstrap_backend.sh`](infra/scripts/bootstrap_backend.sh) initializes the S3 Pulumi state backend/stacks. [`infra/scripts/deploy_env.sh`](infra/scripts/deploy_env.sh) applies infrastructure, builds/pushes images when needed, applies an overlay, runs migrations, and waits for application rollouts.
-- [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) deploys dev on pushes to `main` or manual dispatch, then promotes to prod. Configure required CI checks through branch protection and a required reviewer on the GitHub `prod` environment; the workflow relies on those repository settings. AWS OIDC roles, repository variables, and Pulumi secrets must be configured first.
+- [`infra/scripts/bootstrap_backend.sh`](infra/scripts/bootstrap_backend.sh) initializes the S3 Pulumi state backend/stacks. Platform changes are explicit operations through `make infra-up-*` or the separately approved [Infrastructure workflow](.github/workflows/infrastructure.yml).
+- [`infra/scripts/deploy_env.sh`](infra/scripts/deploy_env.sh) deploys **application releases only**, with no Pulumi calls. All four images share an immutable full-commit-SHA tag; dev builds missing images from a clean matching checkout, while prod only accepts complete published releases. The release's exact configuration and migration Job are applied and awaited before workload rollout.
+- [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) deploys dev on pushes to `main` or manual dispatch, then promotes to prod. Configure required CI checks through branch protection, main-only environment deployment rules, and required reviewers on `prod` and `infrastructure`. Application deployment requires `AWS_REGION`, `ECR_REGISTRY`, and `EKS_CLUSTER_NAME`, not Pulumi credentials.
+
+See the [infrastructure runbook](infra/README.md) for first-time adoption of existing resources, deployment commands, backup/recovery procedures, and verification limits. Do not apply this cleanup to an existing cluster without reviewing that adoption sequence.
 
 **Kubernetes Judge limitation:** the Job executor expects `/opt/codeduel/harness` in each sandbox image, but the sandbox Dockerfiles currently do not install it. Kubernetes executor unit tests use simulated pod results; deployment readiness does not prove that a submission can be graded. Use the Docker path for local duels until the harness and real Kubernetes execution are verified.
 
@@ -200,7 +203,7 @@ make infra-lint
 make infra-test
 ```
 
-CI runs Go lint/build/race-enabled unit tests, builds sandbox images, validates Kubernetes manifests, and runs infrastructure lint/tests. Same-repository pull requests also have an AWS preview/cluster-diff job requiring configured credentials. Database/Redis and real sandbox integration suites are not currently run by CI.
+CI runs Go lint/build/race-enabled unit tests, builds sandbox images, validates Kubernetes manifests, and runs infrastructure lint, mock tests, release-script regression tests, and real Kustomize rendering checks. Same-repository pull requests also run AWS previews and publish rendered release manifests. The read-only preview role does not attempt server-side `kubectl diff` writes. Database/Redis and real sandbox integration suites are not currently run by CI.
 
 ## Repository layout
 

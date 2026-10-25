@@ -77,12 +77,16 @@ def create_rds_instance(
         parameter_group_name=param_group.name,
         username="codeduel_admin",
         password=master_password.result,
-        skip_final_snapshot=True,
-        deletion_protection=False,
+        backup_retention_period=7,
+        copy_tags_to_snapshot=True,
+        skip_final_snapshot=False,
+        final_snapshot_identifier="codeduel-postgres-final",
+        deletion_protection=True,
         tags={
             "Name": "codeduel-postgres",
             "Project": "codeduel",
         },
+        opts=pulumi.ResourceOptions(protect=True),
     )
 
     return RdsResources(

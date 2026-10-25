@@ -80,14 +80,15 @@ def test_plan_role_trusts_only_pull_requests_on_this_repository(github_oidc):
 
 
 @pulumi.runtime.test
-def test_deploy_role_trusts_only_main_and_the_two_environments(github_oidc):
+def test_deploy_role_trusts_only_main_and_named_environments(github_oidc):
     def check(doc_json):
         conditions = _conditions(doc_json)
         assert conditions["token.actions.githubusercontent.com:sub"] == [
             f"{PREFIX}:ref:refs/heads/main",
             f"{PREFIX}:environment:dev",
             f"{PREFIX}:environment:prod",
-        ], "A branch other than main, or a fork, must not be able to deploy"
+            f"{PREFIX}:environment:infrastructure",
+        ], "Environment branch restrictions and approvals must also be configured in GitHub"
         assert conditions["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"
 
     return github_oidc.deploy_role.assume_role_policy.apply(check)
@@ -136,8 +137,7 @@ def test_both_roles_get_eks_access_entries(github_oidc):
 
     def check(args):
         plan_policy, deploy_policy = args
-        # AdminView is read-only but, unlike View, includes the RBAC objects
-        # `kubectl diff` has to read from the overlay.
+        # Retain read-only visibility of RBAC objects for operator inspection.
         assert plan_policy.endswith("/AmazonEKSAdminViewPolicy")
         assert deploy_policy.endswith("/AmazonEKSClusterAdminPolicy")
 

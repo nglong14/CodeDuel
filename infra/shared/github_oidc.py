@@ -6,8 +6,10 @@ repository.
 
 Two roles, because a pull request and a deploy need very different power:
 
-- codeduel-github-plan   read-only; `pulumi preview` and `kubectl diff` on PRs.
-- codeduel-github-deploy PowerUser + iam:*; runs `pulumi up` and `kubectl apply`.
+- codeduel-github-plan   read-only; `pulumi preview` and release rendering on PRs.
+- codeduel-github-deploy PowerUser + iam:*; application deployment and the
+  separately approved infrastructure workflow. The role remains broad; workflow
+  separation is an operational gate, not an IAM least-privilege boundary.
 
 The second one is broad, and that is the honest cost of letting CI run Pulumi
 over a program that creates VPCs, EKS node groups, RDS instances, and IRSA trust
@@ -50,6 +52,7 @@ DEPLOY_SUB_TEMPLATES = [
     "{prefix}:ref:refs/heads/main",
     "{prefix}:environment:dev",
     "{prefix}:environment:prod",
+    "{prefix}:environment:infrastructure",
 ]
 
 
@@ -227,9 +230,8 @@ def create_github_oidc(
     # the cluster. Easiest step to forget; its error message does not point here.
     access_policies: dict[str, aws.eks.AccessPolicyAssociation] = {}
     for name, role, policy in [
-        # AdminView rather than View for the plan role: `kubectl diff` reads the
-        # Judge Role/RoleBinding in the overlay, and the plain View policy
-        # excludes RBAC objects, which fails the whole diff.
+        # Retain read-only RBAC visibility for operator inspection. Automated
+        # previews render locally: kubectl diff requires dry-run write permissions.
         ("plan", plan_role, "AmazonEKSAdminViewPolicy"),
         ("deploy", deploy_role, "AmazonEKSClusterAdminPolicy"),
     ]:

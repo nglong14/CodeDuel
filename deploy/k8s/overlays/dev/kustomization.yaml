@@ -17,12 +17,11 @@ configMapGenerator:
 patches:
   - path: ingress-host.yaml
 
-# Pinned by CI to the commit SHA that was actually built and pushed to ECR;
-# `latest` here is a local-render placeholder only.
+# Rendered with the full release SHA shared by all four immutable images.
 images:
   - name: codeduel
     newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/codeduel
-    newTag: latest
+    newTag: RELEASE_TAG
 
 labels:
   - pairs:

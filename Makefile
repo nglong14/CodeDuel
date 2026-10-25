@@ -40,6 +40,8 @@ help:
 	@echo "  make reset         Destructively reset development data (removes volumes)"
 	@echo "  make infra-deps    Install Pulumi Python dependencies in infra/.venv"
 	@echo "  make infra-test    Run Pulumi mock unit tests in infra/tests"
+	@echo "  make deploy-dev    Deploy application only (RELEASE=<full SHA>, AWS_REGION/ECR_REGISTRY/EKS_CLUSTER_NAME required)"
+	@echo "  make deploy-prod   Promote an existing application release (RELEASE=<full SHA>)"
 
 up:
 	docker compose -f $(COMPOSE_FILE) up -d --wait
@@ -81,16 +83,16 @@ compose-check:
 
 k8s-check:
 	@which kubectl >/dev/null || { echo "kubectl not found"; exit 1; }
-	@kubectl kustomize deploy/k8s/overlays/dev > /tmp/dev.rendered.yaml
-	@kubectl kustomize deploy/k8s/overlays/prod > /tmp/prod.rendered.yaml
-	@if command -v kubeconform >/dev/null 2>&1; then \
-		kubeconform -strict -summary -ignore-missing-schemas /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml; \
+	@set -eu; temporary="$$(mktemp -d)"; trap 'rm -rf "$$temporary"' EXIT; \
+	kubectl kustomize deploy/k8s/overlays/dev > "$$temporary/dev.yaml"; \
+	kubectl kustomize deploy/k8s/overlays/prod > "$$temporary/prod.yaml"; \
+	if command -v kubeconform >/dev/null 2>&1; then \
+		kubeconform -strict -summary -ignore-missing-schemas "$$temporary/dev.yaml" "$$temporary/prod.yaml"; \
 	elif [ -x "$$(go env GOPATH)/bin/kubeconform" ]; then \
-		"$$(go env GOPATH)/bin/kubeconform" -strict -summary -ignore-missing-schemas /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml; \
+		"$$(go env GOPATH)/bin/kubeconform" -strict -summary -ignore-missing-schemas "$$temporary/dev.yaml" "$$temporary/prod.yaml"; \
 	else \
 		echo "kubeconform not found, rendered YAML syntax check only"; \
 	fi
-	@rm -f /tmp/dev.rendered.yaml /tmp/prod.rendered.yaml
 
 test-integration: up-infra
 	CODEDUEL_INTEGRATION=1 $(GO) test -race -count=1 ./internal/infrastructure/... ./internal/auth/... ./internal/redisx/... ./internal/match/... ./internal/submission/... ./internal/judge/... ./internal/reaper/... ./internal/gateway/...
@@ -142,6 +144,14 @@ INFRA_PYTEST := $(INFRA_VENV)/bin/pytest
 INFRA_RUFF := $(INFRA_VENV)/bin/ruff
 
 .PHONY: infra-venv infra-deps infra-test infra-lint infra-preview-shared infra-preview-dev infra-preview-prod infra-up-shared infra-up-dev infra-up-prod
+.PHONY: deploy-dev deploy-prod
+
+deploy-dev:
+	infra/scripts/deploy_env.sh dev "$(RELEASE)"
+
+deploy-prod:
+	@test -n "$(RELEASE)" || { echo "Set RELEASE to a complete full-SHA release"; exit 1; }
+	infra/scripts/deploy_env.sh prod "$(RELEASE)"
 
 infra-venv:
 	@if [ ! -d "$(INFRA_VENV)" ]; then python3 -m venv $(INFRA_VENV); fi
@@ -173,4 +183,3 @@ infra-up-dev: infra-venv
 
 infra-up-prod: infra-venv
 	cd $(INFRA_DIR)/env && pulumi up --stack prod
-

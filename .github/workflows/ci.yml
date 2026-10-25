@@ -111,11 +111,19 @@ jobs:
       - name: Lint infra code with ruff
         run: ruff check infra/
 
+      - uses: azure/setup-kubectl@v4
+
       - name: Run infra unit tests
         run: pytest -v infra/tests
 
+      - name: Check infrastructure shell syntax
+        run: |
+          for script in infra/scripts/*.sh; do
+            bash -n "$script"
+          done
+
   plan:
-    name: Plan (AWS preview and cluster diff)
+    name: Plan (AWS preview and release rendering)
     runs-on: ubuntu-latest
     needs: [k8s-manifests, infra-check]
     # Only same-repository pull requests. A fork PR must never get credentials,
@@ -173,23 +181,18 @@ jobs:
 
       - uses: azure/setup-kubectl@v4
 
-      - name: Diff both overlays against the cluster
+      # kubectl diff uses server-side dry-run writes, which a read-only plan role
+      # cannot authorize. Validate/render locally instead of swallowing RBAC errors.
+      - name: Render both release overlays
         run: |
-          cluster="$(cd infra/shared && pulumi stack output --stack shared eks_cluster_name)"
           registry="$(cd infra/shared && pulumi stack output --stack shared ecr_repository_urls --json | jq -r '.codeduel' | cut -d/ -f1)"
-          aws eks update-kubeconfig --name "$cluster" --region "$AWS_REGION"
-          {
-            echo '## kubectl diff'
-            for env_name in dev prod; do
-              overlay="$(infra/scripts/render_overlay.sh "$env_name" "$registry" "${GITHUB_SHA::7}" "$(mktemp -d)/render")"
-              echo "<details><summary><code>$env_name</code></summary>"
-              echo '```diff'
-              # A diff is the expected outcome on any PR that touches manifests,
-              # so a non-zero exit here is information, not failure.
-              kubectl diff -k "$overlay" 2>&1 || true
-              echo '```'
-              echo '</details>'
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
+          for env_name in dev prod; do
+            overlay="$(infra/scripts/render_overlay.sh "$env_name" "$registry" "$GITHUB_SHA" "$(mktemp -d)/render")"
+            kubectl kustomize "$overlay" > "$RUNNER_TEMP/$env_name.release.yaml"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-manifests
+          path: ${{ runner.temp }}/*.release.yaml
 
  

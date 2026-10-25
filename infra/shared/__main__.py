@@ -13,10 +13,16 @@ Orchestrates provisioning of:
 - CloudWatch & AWS Budget Alarms
 """
 
+import sys
+from pathlib import Path
+
 import pulumi
 import pulumi_kubernetes as k8s
+
+# Pulumi runs each project from its own directory; share only the kubeconfig helper.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from alb_controller import (
-    build_cluster_kubeconfig,
     create_alb_controller_irsa,
     deploy_alb_controller,
 )
@@ -31,6 +37,8 @@ from nodegroups import create_nodegroups
 from rds import create_rds_instance
 from security_groups import attach_cluster_to_app_node_rules, create_security_groups
 from vpc import create_vpc
+
+from infra.kubeconfig import build_kubeconfig
 
 vpc_res = create_vpc()
 subnet_ids = [subnet.id for subnet in vpc_res.subnets]
@@ -77,14 +85,27 @@ alb_irsa_res = create_alb_controller_irsa(
 
 # Deploy the AWS Load Balancer Controller into the cluster so Ingress
 # resources (see deploy/k8s/base/ingress.yaml) can actually provision an ALB.
-cluster_kubeconfig = build_cluster_kubeconfig(
+cluster_kubeconfig = build_kubeconfig(
     cluster_name=eks_res.cluster.name,
-    cluster_endpoint=eks_res.cluster.endpoint,
-    cluster_ca_data=eks_res.cluster.certificate_authorities[0].data,
+    endpoint=eks_res.cluster.endpoint,
+    ca_data=eks_res.cluster.certificate_authorities[0].data,
 )
 cluster_k8s_provider = k8s.Provider(
     "codeduel-cluster-k8s-provider",
     kubeconfig=cluster_kubeconfig,
+)
+shared_config = pulumi.Config("codeduel-shared")
+# Existing clusters must import this object in place on the first platform update.
+# Set adopt_gvisor_runtimeclass=true once, then remove it after a successful import.
+gvisor_runtimeclass = k8s.node.v1.RuntimeClass(
+    "codeduel-gvisor-runtimeclass",
+    metadata=k8s.meta.v1.ObjectMetaArgs(name="gvisor"),
+    handler="runsc",
+    opts=pulumi.ResourceOptions(
+        provider=cluster_k8s_provider,
+        protect=True,
+        import_="gvisor" if shared_config.get_bool("adopt_gvisor_runtimeclass") else None,
+    ),
 )
 aws_region = pulumi.Config("aws").require("region")
 alb_controller_release = deploy_alb_controller(
@@ -143,7 +164,6 @@ pulumi.export(
     "ecr_repository_urls",
     {name: repo.repository_url for name, repo in ecr_res.repositories.items()},
 )
-shared_config = pulumi.Config("codeduel-shared")
 domain_name = shared_config.get("domain_name")
 zone_id = shared_config.get("route53_zone_id")
 cert_res = create_certificate(domain_name=domain_name, zone_id=zone_id)
